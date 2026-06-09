@@ -1,3 +1,10 @@
+#   Foteinos Konstantinos
+#   kfoteinos@hua.gr
+#   
+#   Harokopio University of Athens,
+#   Department of Informatics and Telematics
+#   HUA Computer Vision Group
+
 import rclpy
 import rclpy.duration
 from rclpy.executors import ExternalShutdownException
@@ -23,47 +30,84 @@ import time
 import abc
 import os
 
-# Come to me            => NavigateTo           (/b2/local/trigger_navigation)
-# Unfreeze (ok to go)   => Trigger              (/b2/local/trigger_freeze)
-# Move away from here   => Trigger              (/b2/local/trigger_retreat)
-# Operation finished    => ReturnToBase         (/b2/local/trigger_return_to_base)
-# Freeze                => Trigger              (/b2/local/trigger_freeze)
-# Stop                  => Trigger              (/b2/local/trigger_stop)
-# Emergency situation   => Trigger              (/b2/global/trigger_emergency)
-# I need help           => HelpRequest          (/b2/local/trigger_help_request)            [or NavigateTo (/b2/local/trigger_navigation) ?]
-# Evacuate the area     => ReturnToBase         (/b2/local/trigger_return_to_base)          [TODO]
-# I lost connection     => HelpRequest          (/b2/local/trigger_help_request)
-# Fetch a gas mask      => ReturnToBaseFetch    (/b2/local/trigger_return_to_base_fetch)
-# Featch a shovel       => ReturnToBaseFetch    (/b2/local/trigger_return_to_base_fetch)
-# Fetch an axe          => ReturnToBaseFetch    (/b2/local/trigger_return_to_base_fetch)
+# Configuration-- -------------------------------------------------------------------------------------------------------------------------------------------------------------
 
-
-DEBUGGING = True
-TRANSFORMATIONS_AVAILABLE = False
-FIX_AVAILABLE = False
-
-NAV_TOPIC = "/fix"
-DEPTH_TOPIC = "/b2/camera_front_435i/realsense_front_435i/depth/image_rect_raw"
-RGB_TOPIC = "/b2/camera_front_435i/realsense_front_435i/color/image_raw"
-CAMERA_INFO = "/b2/camera_front_435i/realsense_front_435i/color/camera_info"
-OUTPUT_TOPIC = "/gesture_command"
-
+class Configuration:
+    def __init__(self,
+            debugging:bool,
+            transforms_available:bool,
+            fix_available:bool,
+            nav_fix_topic:str,
+            depth_topic:str,
+            rgb_topic:str,
+            camera_info:str,
+            output_topic:str,
+            target_timeout_seconds:float,
+            earth_radius:float,
+            pose_estimation_threshold:float,
+            device:str,
+            classification_threshold:float,
+            min_occurences:str,
+            no_servers:bool,
+            server_timeout:float,
+            slop:float,
+            max_classification_rate:float,
+            depth_max_threshold:float,
+            depth_min_threshold:float,
+            trigger_stop:str,
+            trigger_help_request:str,
+            trigger_return_to_base_fetch:str,
+            trigger_freeze:str,
+            trigger_retreat:str,
+            trigger_emergency:str,
+            trigger_return_to_base:str,
+            trigger_navigation:str
+            ):
+        self.debugging = debugging
+        self.transforms_available = transforms_available
+        self.fix_available = fix_available
+        self.nav_fix_topic = nav_fix_topic
+        self.depth_topic = depth_topic
+        self.rgb_topic = rgb_topic
+        self.camera_info = camera_info
+        self.output_topic = output_topic
+        self.target_timeout_seconds = target_timeout_seconds
+        self.earth_radius = earth_radius
+        self.pose_estimation_threshold = pose_estimation_threshold
+        self.device = device
+        self.classification_threshold = classification_threshold
+        self.min_occurences = min_occurences
+        self.no_servers = no_servers
+        self.server_timeout = server_timeout
+        self.slop = slop
+        self.max_classification_rate = max_classification_rate
+        self.depth_max_threshold = depth_max_threshold
+        self.depth_min_threshold = depth_min_threshold
+        self.trigger_stop = trigger_stop
+        self.trigger_help_request = trigger_help_request
+        self.trigger_return_to_base_fetch = trigger_return_to_base_fetch
+        self.trigger_freeze = trigger_freeze
+        self.trigger_retreat = trigger_retreat
+        self.trigger_emergency = trigger_emergency
+        self.trigger_return_to_base = trigger_return_to_base
+        self.trigger_navigation = trigger_navigation
 
 # Transformations -------------------------------------------------------------------------------------------------------------------------------------------------------------
 
-class Transformations: # namespace, essentially ...
-    TARGET_TIMEOUT_SECONDS = 1e-1
-    EARTH_RADIUS = 6378137.0 # in meters
-    def __init__(self, node:Node):
+class Transformations:
+    def __init__(self, node:Node, config:Configuration):
+        '''"node" should implement a .info(str) method'''
         self.__tf_buffer = tf2_ros.Buffer()
         self.__tf_listener = tf2_ros.TransformListener(self.__tf_buffer, node)
         self.__init_latitude = None
         self.__init_longitude = None
+        self.__node = node
+        self.config = config
     def register_initial_gps(self, position:NavSatFix):
         if self.__init_latitude is None or self.__init_longitude is None:
             self.__init_latitude = position.latitude
             self.__init_longitude = position.longitude
-            self.get_logger().info(f"Initial position in (latitude, longitude) = ({self.__init_latitude}, {self.__init_longitude})")
+            self.__node.info(f"Initial position in (latitude, longitude) = ({self.__init_latitude}, {self.__init_longitude})")
     # @staticmethod
     def uvd_to_rel_xyz(self, u, v, depth, intrinsics) -> np.ndarray:
         '''
@@ -88,7 +132,7 @@ class Transformations: # namespace, essentially ...
         msg.point.x = xyz[0].item() / 1000
         msg.point.y = xyz[1].item() / 1000
         msg.point.z = xyz[2].item() / 1000
-        transform = self.__tf_buffer.transform(msg,"base_link",timeout=rclpy.duration.Duration(seconds=self.TARGET_TIMEOUT_SECONDS))
+        transform = self.__tf_buffer.transform(msg,"base_link",timeout=rclpy.duration.Duration(seconds=self.config.target_timeout_seconds))
         return float(transform.point.x) * 1000,float(transform.point.y) * 1000,float(transform.point.z) * 1000
     # @staticmethod
     def base_xyz_to_abs_xyz(self, xyz:tuple[float], stamp) -> tuple[float]:
@@ -99,7 +143,7 @@ class Transformations: # namespace, essentially ...
         msg.point.x = xyz[0] / 1000
         msg.point.y = xyz[1] / 1000
         msg.point.z = xyz[2] / 1000
-        transform = self.__tf_buffer.transform(msg,"map",timeout=rclpy.duration.Duration(seconds=self.TARGET_TIMEOUT_SECONDS)) # map or odom
+        transform = self.__tf_buffer.transform(msg,"map",timeout=rclpy.duration.Duration(seconds=self.config.target_timeout_seconds)) # map or odom
         return float(transform.point.x) * 1000,float(transform.point.y) * 1000,float(transform.point.z) * 1000
     # @staticmethod
     def abs_xy_to_gps(self, x, y) -> tuple[float]:
@@ -111,41 +155,38 @@ class Transformations: # namespace, essentially ...
             - longitude:  GPS (degrees)
             - latitude:   GPS (degrees)
         '''
-        lat = self.__init_latitude + ((y/1000) / self.EARTH_RADIUS) * (180.0 / math.pi)
-        lon = self.__init_longitude + ((x/1000) / (self.EARTH_RADIUS * math.cos(math.radians(self.__init_latitude)))) * (180.0 / math.pi)
+        lat = self.__init_latitude + ((y/1000) / self.config.earth_radius) * (180.0 / math.pi)
+        lon = self.__init_longitude + ((x/1000) / (self.config.earth_radius * math.cos(math.radians(self.__init_latitude)))) * (180.0 / math.pi)
         return float(lon), float(lat)
     # @staticmethod
     def gps_to_abs_xy(self, lat, lon) -> tuple[float]:
         '''
         GPS -> abs_xy (the inverse of the previous)
         '''
-        y = (lat - self.__init_latitude) * (math.pi / 180.0) * self.EARTH_RADIUS # in meters
-        x = (lon - self.__init_longitude) * (math.pi / 180.0) * (self.EARTH_RADIUS * math.cos(math.radians(self.__init_latitude))) # in meters
+        y = (lat - self.__init_latitude) * (math.pi / 180.0) * self.config.earth_radius # in meters
+        x = (lon - self.__init_longitude) * (math.pi / 180.0) * (self.config.earth_radius * math.cos(math.radians(self.__init_latitude))) # in meters
         return float(x * 1000), float(y * 1000) # (in mm)
 
 # Pose estimation --------------------------------------------------------------------------------------------------------------------------------------------------------------
 
-class Pose_Estimator(abs.ABC):
-    POSE_ESTIMATION_THRESHOLD = 0.80
+class Pose_Estimator(abc.ABC):
     @abc.abstractmethod
     def detect_keypoints(self, color, depth) -> list[dict]:pass
-    @abc.abstractmethod
     @staticmethod
+    @abc.abstractmethod
     def aggregate(keypoints):pass
-    # @staticmethod
-    # def accept():pass
-    @abc.abstractmethod
     @staticmethod
+    @abc.abstractmethod
     def get_single_person(all_keypoints:list[dict]):pass
     @staticmethod
-    def accept(confidence):
-        return confidence >= Pose_Estimator.POSE_ESTIMATION_THRESHOLD
+    def accept(confidence, config:Configuration):
+        return confidence >= config.pose_estimation_threshold
 
 class YOLO_Pose_Wrapper(Pose_Estimator):
-    def __init__(self, path:str, device:str="cuda"):
-        assert os.path.isfile(path), f"{path} is not a valid path"
-        self.__device = device
-        self.__pose_estimator = YOLO(path).to(self.__device)
+    def __init__(self, model:str, config:Configuration):
+        self.__device = config.device
+        self.__pose_estimator = YOLO(model).to(self.__device)
+        self.config = config
         self.__names = [
             "Nose",
             "Left Eye",
@@ -183,7 +224,7 @@ class YOLO_Pose_Wrapper(Pose_Estimator):
         '''
         all_result = self.__pose_estimator(image, verbose=False)[0]
         result = all_result.keypoints.data
-        if DEBUGGING and len(result)>0:
+        if self.config.debugging and len(result)>0:
             all_result.save("vis.png")
         keypoints = []
         for person in range(len(result)):
@@ -258,19 +299,18 @@ class YOLO_Pose_Wrapper(Pose_Estimator):
 
 # Classification wrappers ------------------------------------------------------------------------------------------------------------------------------------------------------
 
-class Classifier(abs.ABC):
-    CLASSIFICATION_THRESHOLD = 0.80
+class Classifier(abc.ABC):
     # @abc.abstractmethod
     # def load_weights(self, path:str):pass
     @abc.abstractmethod
     def classify(self, image):pass # 8-bit RGB image (H x W x 3)
     @staticmethod
-    def accept(confidence):
-        return confidence >= Classifier.CLASSIFICATION_THRESHOLD
+    def accept(confidence, config:Configuration):
+        return confidence >= config.classification_threshold
 
 class EfficientNetB0_Wrapper(Classifier):
-    def __init__(self, path:str|None=None, device:str="cuda"):
-        self.__device = device
+    def __init__(self,  config:Configuration, path:str|None=None):
+        self.__device = config.device
         self.__classes = [
             "fetch-a-gas-mask", # G0
             "come-to-me", # G1
@@ -299,7 +339,8 @@ class EfficientNetB0_Wrapper(Classifier):
         self.__model.load_state_dict(torch.load(path,map_location=torch.device(self.__device)))
     def classify(self, image): # array
         self.__model.eval()
-        probabilities = softmax(self.__classifier(self.__resize((self.__to_tensor(image)/255).unsqueeze(dim=0)).to(self.__device))[0]).detach().cpu().numpy()
+        # probabilities = softmax(self.__model(self.__resize((self.__to_tensor(image)/255).unsqueeze(dim=0)).to(self.__device))[0], dim=0).detach().cpu().numpy()
+        probabilities = softmax(self.__model(self.__resize((self.__to_tensor(image)).unsqueeze(dim=0)).to(self.__device))[0], dim=0).detach().cpu().numpy()
         argmax = probabilities.argmax()
         pred_class = self.__classes[argmax]
         confidence = probabilities[argmax].item()
@@ -309,8 +350,8 @@ class EfficientNetB0_Wrapper(Classifier):
         }
 
 class YOLO_Classification_Wrapper(Classifier):
-    def __init__(self, path:str, device:str="cuda"):
-        self.__device = device
+    def __init__(self, path:str, config:Configuration):
+        self.__device = config.device
         self.__classes = {
             "0": "fetch-a-gas-mask",
             "1": "come-to-me",
@@ -342,12 +383,12 @@ class YOLO_Classification_Wrapper(Classifier):
 # Filter ----------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
 class Command_Filter:
-    MIN_OCCURS = 4
-    def __init__(self, min_occurs:int|None=None):
+    def __init__(self, node:Node, config:Configuration):
+        '''"node" should implement a .info(str) method'''
         self.restart()
-        if min_occurs is None:
-            min_occurs = self.MIN_OCCURS
-        self.__min_occurs = min_occurs
+        self.__node = node
+        self.__min_occurs = config.min_occurences
+        self.config = config
     def register_command(self, gesture_command:str, confidence:float):
         if self.__current is None or self.__current != gesture_command:
             self.__current = gesture_command
@@ -360,42 +401,42 @@ class Command_Filter:
         self.__counter= 0
     def accept(self):
         if self.__counter < self.__min_occurs:
-            if DEBUGGING: self.get_logger().info(f"[{self.__log_counter}] {self.__counter} < {self.__min_occurs} for {self.__current}")
-            return True
+            if self.config.debugging: self.__node.info(f"{self.__counter} < {self.__min_occurs} for {self.__current}")
+            return False
         # it occured many times succesively
         elif self.__counter == int(self.__min_occurs):
-            if DEBUGGING: self.get_logger().info(f"[{self.__log_counter}] {self.__counter} = {self.__min_occurs} for {self.__current}")
-            return False
+            if self.config.debugging: self.__node.info(f"{self.__counter} = {self.__min_occurs} for {self.__current}")
+            return True
         # the action has already been called
         else:
-            if DEBUGGING: self.get_logger().info(f"[{self.__log_counter}] {self.__counter} > {self.__min_occurs} for {self.__current}")
-            return True
+            if self.config.debugging: self.__node.info(f"{self.__counter} > {self.__min_occurs} for {self.__current}")
+            return False
 
 # Action caller ---------------------------------------------------------------------------------------------------------------------------------------------------------------
 
 class Action_Caller:
-    NO_UNDERLYING_IMPL = True # Change this to False during integration with the UPC
-    SERVER_TIMEOUT = 1.0
-    def __init__(self, node:Node):
-        self.__stop = ActionClient(node, Trigger, "/b2/local/trigger_stop")
-        self.__help = ActionClient(node, HelpRequest, "/b2/local/trigger_help_request")
-        self.__fetch = ActionClient(node, ReturnToBaseFetch, "/b2/local/trigger_return_to_base_fetch")
-        self.__freeze = ActionClient(node, Trigger, "/b2/local/trigger_freeze")
-        self.__retreat = ActionClient(node, Trigger, "/b2/local/trigger_retreat")
-        self.__emergency = ActionClient(node, Trigger, "/b2/global/trigger_emergency")
-        self.__return_bos = ActionClient(node, ReturnToBase, "/b2/local/trigger_return_to_base")
-        self.__navigation = ActionClient(node, NavigateTo, "/b2/local/trigger_navigation")
+    def __init__(self, node:Node, config:Configuration):
+        '''"node" should impement .info(str), .error(str)'''
+        self.__stop = ActionClient(node, Trigger, config.trigger_stop)
+        self.__help = ActionClient(node, HelpRequest, config.trigger_help_request)
+        self.__fetch = ActionClient(node, ReturnToBaseFetch, config.trigger_return_to_base_fetch)
+        self.__freeze = ActionClient(node, Trigger, config.trigger_freeze)
+        self.__retreat = ActionClient(node, Trigger, config.trigger_retreat)
+        self.__emergency = ActionClient(node, Trigger, config.trigger_emergency)
+        self.__return_bos = ActionClient(node, ReturnToBase, config.trigger_return_to_base)
+        self.__navigation = ActionClient(node, NavigateTo, config.trigger_navigation)
+        self.__node = node
+        self.config = config
     def __call_server(self, server, msg):
-        if not self.NO_UNDERLYING_IMPL:
-            if not server.wait_for_server(timeout_sec=self.SERVER_TIMEOUT):
-                self.get_logger().error(f"[{self.__log_counter}] SERVER UNAVAILABLE (timeout = {self.SERVER_TIMEOUT:0.2f})")
+        if not self.config.no_servers:
+            if not server.wait_for_server(timeout_sec=self.config.server_timeout):
+                self.__node.error(f"SERVER UNAVAILABLE (timeout = {self.config.server_timeout:0.2f})")
             else:
                 server.send_goal_async(msg)
-                self.get_logger().info(f"[{self.__log_counter}] \033[1;102mMESSAGE WAS SENT\033[0;0m")
+                self.__node.info("\033[1;102mMESSAGE WAS SENT\033[0;0m")
     def trigger_action(self, gesture_command:str, **args): # args in mm        
         # https://asantamarianavarro.gitlab.io/code/projects/triffid/aurops/sections/triffid/ugv_planning.html#gesture-commander
         if gesture_command == "come-to-me":
-            return
             msg = NavigateTo.Goal()
             msg.goal_pose = Pose() # map frame
             msg.goal_pose.position.x = float(args["x"]) / 1000 # convert to meters
@@ -441,7 +482,6 @@ class Action_Caller:
             self.__call_server(self.__emergency, msg)
 
         elif gesture_command == "i-need-help":
-            return
             msg = HelpRequest.Goal()
             msg.target_transform = Transform()
             msg.target_transform.translation.x = float(args["x"]) / 1000
@@ -462,7 +502,6 @@ class Action_Caller:
             self.__call_server(self.__return_bos, msg)
         
         elif gesture_command == "i-lost-connection":
-            return
             msg = HelpRequest.Goal()
             msg.target_transform = Transform()
             msg.target_transform.translation.x = float(args["x"]) / 1000
@@ -498,7 +537,7 @@ class Action_Caller:
             self.__call_server(self.__fetch, msg)
 
         else:
-            self.get_logger().error(f"[{self.__log_counter}] Unknown command: {gesture_command}")
+            self.__node.error(f"Unknown command: {gesture_command}")
 
 # Perception ------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
@@ -509,7 +548,8 @@ class Perceptron(abc.ABC):
 class DEMO_Perceptron(Perceptron):
     def get_arrays(self, color_image, depth_image):
         color_array = np.asarray(color_image.data, dtype=np.uint8).reshape((color_image.height, color_image.width, 3)) # H x W x 3
-        depth_array = cv2.resize(np.asarray(np.frombuffer(depth_image.data,dtype=np.uint16), dtype=np.float32),dsize=(color_image.width, color_image.height)).reshape((color_image.height, color_image.width, 1)) # H x W x 1
+        depth_array = cv2.resize(np.asarray(np.frombuffer(depth_image.data,dtype=np.uint16), dtype=np.float32).reshape((depth_image.height, depth_image.width)),\
+                                 dsize=(color_image.width, color_image.height)).reshape((color_image.height, color_image.width, 1)) # H x W x 1
         return color_array, depth_array
     
 class RealSense_Perceptron(Perceptron):
@@ -521,7 +561,7 @@ class RealSense_Perceptron(Perceptron):
         depth_array = np.frombuffer(depth_image.data, dtype=np.uint16).reshape((depth_image.height, depth_image.width))
         return color_array, depth_array
 
-# TODO
+# Cancelled
 class Camera360_Perceptron(Perceptron):
     def get_arrays(self, color_image, depth_image):
         return super().get_arrays(color_image, depth_image)
@@ -529,48 +569,49 @@ class Camera360_Perceptron(Perceptron):
 # Gesture commander -----------------------------------------------------------------------------------------------------------------------------------------------------------
 
 class Gesture_Commander_Coordinator(Node):
-    SLOP = 1e-1
-    MAX_FPS = 2
-    DEPTH_THRESHOLD = 100000 # in mm
-    MIN_DEPTH_THRESHOLD = 1000 # in mm
     def __init__(self, 
             classifier:Classifier,
             pose_estimator:Pose_Estimator,
-            command_filter:Command_Filter,
             perceptron:Perceptron,
-            color_topic:str,
-            depth_topic:str,
-            camera_info:str,
-            nav_fix_topic:str,
-            output_topic:str
+            config:Configuration
         ):
         super().__init__("gesture_commander")
         self.__time_synchronizer = ApproximateTimeSynchronizer(
             fs=[
-                Subscriber(self, Image, color_topic), 
-                Subscriber(self, Image, depth_topic), 
-                Subscriber(self, CameraInfo, camera_info),
-            ] + ([Subscriber(self, NavSatFix, nav_fix_topic)] if FIX_AVAILABLE else []),
+                Subscriber(node=self, msg_type=Image, topic=config.rgb_topic), 
+                Subscriber(node=self, msg_type=Image, topic=config.depth_topic), 
+                Subscriber(node=self, msg_type=CameraInfo, topic=config.camera_info),
+            ] + ([Subscriber(node=self, msg_type=NavSatFix, topic=config.nav_fix_topic)] if config.fix_available else []),
             queue_size=10,
-            slop=self.SLOP
+            slop=config.slop
         )
         self.__time_synchronizer.registerCallback(self.__main_callback)
         self.__publisher=self.create_publisher(
             msg_type = String,
-            topic = output_topic,
+            topic = config.output_topic,
             qos_profile = 10
         )
         self.__classifier = classifier
         self.__pose_estimator = pose_estimator
-        self.__command_filter = command_filter
+        self.__command_filter = Command_Filter(node=self, config=config)
         self.__command_filter.restart()
         self.__perceptron = perceptron
-        self.__action_caller = Action_Caller(self)
-        if TRANSFORMATIONS_AVAILABLE: # TODO!!!!!!!!!!!!!!!!!!!!!!!!!!!
-            self.__transformations = Transformations(self)
+        self.__action_caller = Action_Caller(node=self, config=config)
+        if config.transforms_available:
+            self.__transformations = Transformations(node=self, config=config)
         self.__log_counter = 0
         self.__last = None
         self.__detection_id = 0
+        self.config = config
+
+    def info(self, text:str) -> None:
+        self.get_logger().info(f"[{self.__log_counter}] {text}")
+
+    def error(self, text:str) -> None:
+        self.get_logger().error(f"[{self.__log_counter}] {text}")
+
+    def warn(self, text:str) -> None:
+        self.get_logger().warning(f"[{self.__log_counter}] {text}")
 
     def __main_callback(self, color_image:Image, depth_image:Image, intrinsics:CameraInfo, global_position:NavSatFix=None):
         '''
@@ -583,71 +624,77 @@ class Gesture_Commander_Coordinator(Node):
         Publishes:
             See README
         '''
-        if self.__last is None: # first frame
-            self.__last = time.time()
-        else:
-            current = time.time()
-            approx_fps = 1 / (current - self.__last) # 1/sec
-            if approx_fps > self.MAX_FPS:
-                self.get_logger().info(f"Omit: {approx_fps:.2f} > {self.MAX_FPS:.2f} FPS")
-                return
-            self.__last = current
-            self.get_logger().info(f"[{self.__log_counter}] Current approximated FPS: {approx_fps:.2f}")
-        self.__log_counter += 1
-        
-        try:
 
-            color_array, depth_array = self.__perceptron.get_arrays(color_image, depth_image)
+        try:
+        
+            if self.config.transforms_available:
+                self.__transformations.register_initial_gps(global_position)
+
+            if self.__last is None: # first frame
+                self.__last = time.time()
+            else:
+                current = time.time()
+                approx_rate = 1 / max(current - self.__last, 1e-6) # 1/sec
+                if approx_rate > self.config.max_classification_rate:
+                    self.info(f"Omit: {approx_rate:.2f} > {self.config.max_classification_rate:.2f} FPS")
+                    return
+                self.__last = current # do not place it before the if statement, as it needs to estimate the classification rate (not the camera FPS)
+                self.info(f"Current approximated classification rate: {approx_rate:.2f} FPS")
+            self.__log_counter += 1
+
+            color_array, depth_array = self.__perceptron.get_arrays(color_image=color_image, depth_image=depth_image)
 
             # Human(s) pose estimation
-            all_keypoints = self.__pose_estimator.detect_keypoints(color_array, depth_array)
-            self.get_logger().info(f"[{self.__log_counter}] {len(all_keypoints)} detected humans")
+            all_keypoints = self.__pose_estimator.detect_keypoints(color=color_array, depth=depth_array)
+            self.info(f"{len(all_keypoints)} detected humans")
             # Filter: Are there any humans?
             if len(all_keypoints) == 0:
                 self.__command_filter.restart()
                 return
             argmin_u, argmin_v, argmin_c, min_depth, argmin_idx = self.__pose_estimator.get_single_person(all_keypoints)
             # # Filter: Is pose estimation confident enough?
-            # if not self.__pose_estimator.accept(argmin_c):
+            # if not self.__pose_estimator.accept(argmin_c, config=self.config):
             #     self.__command_filter.restart()
-            #     self.get_logger().warning(f"[{self.__log_counter}] Low confidence in pose estimation")
+            #     self.warn(f"Low confidence in pose estimation")
             #     return
             # Filter: Is human depth available?
             if argmin_u is None:
                 self.__command_filter.restart()
-                self.get_logger().warning(f"[{self.__log_counter}] Cannot infer human distance")
+                self.warn(f"Cannot infer human distance")
                 return
             # # Filter: Is human sufficiently near?
-            # if min_depth > __depth_threshold or min_depth < MIN_DEPTH_THRESHOLD:
+            # if min_depth > self.config.depth_max_threshold or min_depth < self.config.depth_min_threshold:
             #     self.__command_filter.restart()
-            #     self.get_logger().warning(f"[{self.__log_counter}] Distance from camera ({min_depth}) exceeds threshold (> {self.__depth_threshold}) or < {MIN_DEPTH_THRESHOLD} (mm)")
+            #     self.warn(f"Distance from camera ({min_depth}) exceeds threshold (> {self.config.depth_max_threshold}) or < {self.config.depth_min_threshold} (mm)")
             #     return
 
             prediction = self.__classifier.classify(color_array)
             # Filter: Is the classification confident enough?
-            if not self.__classifier.accept(prediction['confidence']):
+            if not self.__classifier.accept(confidence=prediction['confidence'], config=self.config):
                 self.__command_filter.restart()
-                self.get_logger().warning(f"[{self.__log_counter}] Low confidence.")
+                self.warn(f"Low confidence.")
                 return
 
-            self.__command_filter.register_command(prediction['class'], prediction['confidence'])
+            self.__command_filter.register_command(gesture_command=prediction['class'], confidence=prediction['confidence'])
             # Filter: Successive occurences (given filter 4, of high confidence!)
             if not self.__command_filter.accept():
                 # Do not restart!
-                self.get_logger().warning(f"[{self.__log_counter}] Ignoring {prediction['class']}")
+                self.warn(f"Ignoring {prediction['class']}")
                 return
 
-            self.get_logger().info(f"[{self.__log_counter}] \033[1;102mACTION ACCEPTED FOR {prediction['class']}\033[0;0m")
+            self.info(f"\033[1;102mACTION ACCEPTED FOR {prediction['class']}\033[0;0m")
 
-            rel_xyz = self.__transformations.uvd_to_rel_xyz(u=argmin_u,v=argmin_v,depth=min_depth,intrinsics=np.asarray(intrinsics.k).reshape((3,3)))
-            base_xyz = self.__transformations.rel_xyz_to_base_xyz(rel_xyz,color_image.header.stamp)
-            abs_xyz = self.__transformations.base_xyz_to_abs_xyz(base_xyz,color_image.header.stamp)
-            gps = self.__transformations.abs_xy_to_gps(x=abs_xyz[0],y=abs_xyz[1]) # lon, lat
-            
-            self.get_logger().info(f"[{self.__log_counter}] Detection position: {gps} (GPS) [or ({self.__transformations.gps_to_abs_xy(lat=gps[1],lon=gps[0])}) (xy in mm)]")
-                
+            if self.config.transforms_available:
+                rel_xyz = self.__transformations.uvd_to_rel_xyz(u=argmin_u,v=argmin_v,depth=min_depth,intrinsics=np.asarray(intrinsics.k).reshape((3,3)))
+                base_xyz = self.__transformations.rel_xyz_to_base_xyz(xyz=rel_xyz,stamp=color_image.header.stamp)
+                abs_xyz = self.__transformations.base_xyz_to_abs_xyz(xyz=base_xyz,stamp=color_image.header.stamp)
+                gps = self.__transformations.abs_xy_to_gps(x=abs_xyz[0],y=abs_xyz[1]) # lon, lat
+                self.info(f"Detection position: {gps} (GPS) [or ({self.__transformations.gps_to_abs_xy(lat=gps[1],lon=gps[0])}) (xy in mm)]")
+            else:
+                abs_xyz = (0, 0, 0)
+                self.warn("No available frame transformations")
 
-            self.__action_caller.trigger_action(prediction['class'], x=abs_xyz[0], y=abs_xyz[1], z=abs_xyz[2], q0=0, q1=0, q2=0, q3=1)
+            self.__action_caller.trigger_action(gesture_command=prediction['class'], x=abs_xyz[0], y=abs_xyz[1], z=abs_xyz[2], q0=0, q1=0, q2=0, q3=1)
             self.__publisher.publish(String(data=json.dumps({
                 "type": "FeatureCollection",
                 "features":[
@@ -655,7 +702,7 @@ class Gesture_Commander_Coordinator(Node):
                         "type": "Feature",
                         "geometry": {
                             "type": "Point",
-                            "coordinates": list(gps) if TRANSFORMATIONS_AVAILABLE and FIX_AVAILABLE else None
+                            "coordinates": list(gps) if self.config.transforms_available and self.config.fix_available else None
                         },
                         "properties": {
                             "class":prediction["class"],
@@ -668,34 +715,58 @@ class Gesture_Commander_Coordinator(Node):
                                 "rel_x":rel_xyz[0],
                                 "rel_y":rel_xyz[1],
                                 "rel_z":rel_xyz[2]
-                            } if TRANSFORMATIONS_AVAILABLE and FIX_AVAILABLE else None
+                            } if self.config.transforms_available and self.config.fix_available else None
                         }
                     }
                 ]
             })))
             self.__detection_id += 1
-            
 
         except BaseException as e:
-            self.get_logger().error(f"[{self.__log_counter}] Error occured: {e}")        
+            self.error(f"FATAL ERROR : {e}")
 
 # -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
 def main():
     try:
+        config = Configuration(
+            debugging = True,
+            transforms_available = False,
+            fix_available = False,
+            nav_fix_topic = "/fix",
+            depth_topic = "/b2/camera_front_435i/realsense_front_435i/depth/image_rect_raw",
+            rgb_topic = "/b2/camera_front_435i/realsense_front_435i/color/image_raw",
+            camera_info = "/b2/camera_front_435i/realsense_front_435i/color/camera_info",
+            output_topic = "/gesture_command",
+            target_timeout_seconds = 1e-1,
+            earth_radius = 6_378_137.0, # in meters
+            pose_estimation_threshold = 0.80,
+            device = "cuda" if torch.cuda.is_available() else "cpu",
+            classification_threshold = 0.80,
+            min_occurences = 4,
+            no_servers = False, # previous NO_UNDERLYING_IMPL, change this to False during integration with UPC
+            server_timeout = 1.0,
+            slop = 1e-1,
+            max_classification_rate = 2,
+            depth_max_threshold = 100_000, # mm
+            depth_min_threshold = 1_000, # mm
+            trigger_stop = "/b2/local/trigger_stop",
+            trigger_help_request = "/b2/local/trigger_help_request",
+            trigger_return_to_base_fetch = "/b2/local/trigger_return_to_base_fetch",
+            trigger_freeze = "/b2/local/trigger_freeze",
+            trigger_retreat = "/b2/local/trigger_retreat",
+            trigger_emergency = "/b2/global/trigger_emergency",
+            trigger_return_to_base = "/b2/local/trigger_return_to_base",
+            trigger_navigation = "/b2/local/trigger_navigation"
+        )
         rclpy.init()
         rclpy.spin(node=Gesture_Commander_Coordinator(
-            classifier = EfficientNetB0_Wrapper("/home/triffid/hua_ws/gesture_module_v2/gesture_recognition/gesture_recognition/efficientnetb0_color_pretrained_ext.pt"),
+            classifier = EfficientNetB0_Wrapper(config=config,path="/home/triffid/hua_ws/gesture_module_v2/gesture_recognition/gesture_recognition/efficientnetb0_color_pretrained_ext.pt"),
             # classifier = YOLO_Classification_Wrapper("/home/triffid/hua_ws/gesture_module_v2/gesture_recognition/gesture_recognition/yolo26m-cls-FR-GESTURE.pt"),
-            pose_estimator = YOLO_Pose_Wrapper("yolo26n-pose.pt"),
-            command_filter = Command_Filter(),
+            pose_estimator = YOLO_Pose_Wrapper(model="yolo26n-pose.pt", config=config),
             perceptron = DEMO_Perceptron(),
             # perceptron = RealSense_Perceptron(),
-            color_topic = RGB_TOPIC,
-            depth_topic = DEPTH_TOPIC,
-            camera_info = CAMERA_INFO,
-            nav_fix_topic = NAV_TOPIC,
-            output_topic = OUTPUT_TOPIC
+            config = config
         ))
     except (ExternalShutdownException, KeyboardInterrupt) as e:
         print(e)

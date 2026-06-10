@@ -6,9 +6,11 @@
 
 **TRIFFID Research Project**
 
-<img src="assets/hua.png" width="100" height="100" />
-<img src="assets/cvgroup.png" width="120" height="100" />
-<img src="assets/triffid.png" width="300" height="100" />
+<p float="left">
+    <img src="assets/hua.png" width="100" height="100" />
+    <img src="assets/cvgroup.png" width="120" height="100" />
+    <img src="assets/triffid.png" width="300" height="100" />
+</p>
 
 **Editor:** Foteinos Konstantinos
 

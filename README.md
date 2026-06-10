@@ -427,24 +427,6 @@ To enter the container:
 docker exec -it <container ID> bash
 ```
 
-<!-- ### Instructions for playing the ROS2 bag:
-
-Extract everything from the .zip file and run:
-```bash
-ros2 bag play <db3 file>
-```
--->
-
-### Instructions for setup (using the scripts)
-
-```bash
-chmod +x run_classifier.sh
-chmod +x run_producer.sh
-./run_classifier.sh
-```
-
-Only for the simulated data: open a second terminal, enter the container and type `./run_producer.sh`.
-
 ### Instructions for setup (using ROS directly)
 
 After entering the container:

@@ -425,7 +425,7 @@ class Command_Filter:
             if self.__not_triggered_due_to_time and (now - self.__last_time_triggered >= self.config.min_sec_between_commands):
                 self.__not_triggered_due_to_time = False
                 self.__last_time_triggered = now
-                if self.config.debugging: self.__node.info("Action accepted (was not accepted previously due to constraint on time between triggers)")
+                if self.config.debugging: self.__node.info("Action accepted (was not accepted earlier due to constraint on time between triggers)")
                 return True
             else:
                 return False
@@ -778,7 +778,7 @@ def main():
             trigger_emergency = "/b2/global/trigger_emergency",
             trigger_return_to_base = "/b2/local/trigger_return_to_base",
             trigger_navigation = "/b2/local/trigger_navigation",
-            min_sec_between_commands = 10 # seconds
+            min_sec_between_commands = 1 # seconds
         )
         rclpy.init()
         rclpy.spin(node=Gesture_Commander_Coordinator(

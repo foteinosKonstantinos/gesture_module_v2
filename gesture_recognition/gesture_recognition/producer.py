@@ -160,12 +160,12 @@ class Producer(Node):
             "frames/high_Fetch-a-shovel_357_color.png",
             "frames/high_Fetch-a-shovel_357_color.png",
             "frames/high_Fetch-a-shovel_357_color.png",
-            "frames/high_Fetch-a-shovel_357_color.png"
+            "frames/high_Fetch-a-shovel_357_color.png",
 
             "frames/high_Fetch-an-axe_346_color.png",
             "frames/high_Fetch-an-axe_346_color.png",
             "frames/high_Fetch-an-axe_346_color.png",
-            "frames/high_Fetch-an-axe_346_color.png"
+            "frames/high_Fetch-an-axe_346_color.png",
 
             "frames/high_Freeze_340_color.png",
             "frames/high_Freeze_340_color.png",

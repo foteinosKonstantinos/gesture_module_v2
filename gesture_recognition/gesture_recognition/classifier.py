@@ -47,7 +47,7 @@ class Configuration:
             pose_estimation_threshold:float,
             device:str,
             classification_threshold:float,
-            min_occurences:str,
+            min_occurrences:str,
             no_servers:bool,
             server_timeout:float,
             slop:float,
@@ -77,7 +77,7 @@ class Configuration:
         self.pose_estimation_threshold = pose_estimation_threshold
         self.device = device
         self.classification_threshold = classification_threshold
-        self.min_occurences = min_occurences
+        self.min_occurrences = min_occurrences
         self.no_servers = no_servers
         self.server_timeout = server_timeout
         self.slop = slop
@@ -389,7 +389,7 @@ class Command_Filter:
         '''"node" should implement a .info(str) method'''
         self.restart()
         self.__node = node
-        self.__min_occurs = config.min_occurences
+        self.__min_occurs = config.min_occurrences
         self.config = config
     def register_command(self, gesture_command:str, confidence:float):
         if self.__current is None or self.__current != gesture_command:
@@ -415,15 +415,16 @@ class Command_Filter:
                 self.__last_time_triggered = now
                 return True
             else:
-                if self.config.debugging: self.__node.info(f"Action rejected, as the last one was accepted before {now - self.__last_time_triggered} < {self.config.min_sec_between_commands} (sec)")
+                if self.config.debugging: self.__node.warn(f"Action rejected, as the last one was accepted before {now - self.__last_time_triggered:.2f} < {self.config.min_sec_between_commands:.2f} (sec)")
                 self.__not_triggered_due_to_time = True
                 return False
         # the action has already been called
         else:
             if self.config.debugging: self.__node.info(f"{self.__counter} > {self.__min_occurs} for {self.__current}")
-            if self.__not_triggered_due_to_time:
+            now = time.time()
+            if self.__not_triggered_due_to_time and (now - self.__last_time_triggered >= self.config.min_sec_between_commands):
                 self.__not_triggered_due_to_time = False
-                self.__last_time_triggered = time.time()
+                self.__last_time_triggered = now
                 if self.config.debugging: self.__node.info("Action accepted (was not accepted previously due to constraint on time between triggers)")
                 return True
             else:
@@ -653,7 +654,8 @@ class Gesture_Commander_Coordinator(Node):
             else:
                 current = time.time()
                 approx_rate = 1 / max(current - self.__last, 1e-6) # 1/sec
-                if approx_rate > self.config.max_classification_rate:
+                # Filter: classification rate
+                if approx_rate >= self.config.max_classification_rate:
                     self.info(f"Omit: {approx_rate:.2f} > {self.config.max_classification_rate:.2f} FPS")
                     return
                 self.__last = current # do not place it before the if statement, as it needs to estimate the classification rate (not the camera FPS)
@@ -681,9 +683,9 @@ class Gesture_Commander_Coordinator(Node):
                 self.warn(f"Cannot infer human distance")
                 return
             # # Filter: Is human sufficiently near?
-            # if min_depth > self.config.depth_max_threshold or min_depth < self.config.depth_min_threshold:
+            # if min_depth >= self.config.depth_max_threshold or min_depth =< self.config.depth_min_threshold:
             #     self.__command_filter.restart()
-            #     self.warn(f"Distance from camera ({min_depth}) exceeds threshold (> {self.config.depth_max_threshold}) or < {self.config.depth_min_threshold} (mm)")
+            #     self.warn(f"Distance from camera ({min_depth}) exceeds threshold (>= {self.config.depth_max_threshold} or =< {self.config.depth_min_threshold} (mm)")
             #     return
 
             prediction = self.__classifier.classify(color_array)
@@ -694,7 +696,7 @@ class Gesture_Commander_Coordinator(Node):
                 return
 
             self.__command_filter.register_command(gesture_command=prediction['class'], confidence=prediction['confidence'])
-            # Filter: Successive occurences (given filter 4, of high confidence!)
+            # Filter: Successive ocurrences (given filter 4, of high confidence!)
             if not self.__command_filter.accept():
                 # Do not restart!
                 self.warn(f"Ignoring {prediction['class']}")
@@ -751,21 +753,21 @@ def main():
             debugging = True,
             transforms_available = False,
             fix_available = False,
-            nav_fix_topic = "/fix",
-            depth_topic = "/b2/camera_front_435i/realsense_front_435i/depth/image_rect_raw",
-            rgb_topic = "/b2/camera_front_435i/realsense_front_435i/color/image_raw",
-            camera_info = "/b2/camera_front_435i/realsense_front_435i/color/camera_info",
+            nav_fix_topic = "/fix_test",
+            depth_topic = "/b2/camera_front_435i/realsense_front_435i/depth/image_rect_raw_test",
+            rgb_topic = "/b2/camera_front_435i/realsense_front_435i/color/image_raw_test",
+            camera_info = "/b2/camera_front_435i/realsense_front_435i/color/camera_info_test",
             output_topic = "/gesture_command",
             target_timeout_seconds = 1e-1,
             earth_radius = 6_378_137.0, # in meters
             pose_estimation_threshold = 0.80,
             device = "cuda" if torch.cuda.is_available() else "cpu",
             classification_threshold = 0.80,
-            min_occurences = 4,
+            min_occurrences = 4,
             no_servers = False, # previous NO_UNDERLYING_IMPL, change this to False during integration with UPC
             server_timeout = 1.0,
             slop = 1e-1,
-            max_classification_rate = 2,
+            max_classification_rate = 2, # fps
             depth_max_threshold = 100_000, # mm
             depth_min_threshold = 1_000, # mm
             trigger_stop = "/b2/local/trigger_stop",
@@ -783,8 +785,8 @@ def main():
             classifier = EfficientNetB0_Wrapper(config=config,path="/home/triffid/hua_ws/gesture_module_v2/gesture_recognition/gesture_recognition/efficientnetb0_color_pretrained_ext.pt"),
             # classifier = YOLO_Classification_Wrapper(config=config,path="/home/triffid/hua_ws/gesture_module_v2/gesture_recognition/gesture_recognition/yolo26m-cls-FR-GESTURE.pt"),
             pose_estimator = YOLO_Pose_Wrapper(model="yolo26n-pose.pt", config=config),
-            # perceptron = DEMO_Perceptron(),
-            perceptron = RealSense_Perceptron(),
+            perceptron = DEMO_Perceptron(),
+            # perceptron = RealSense_Perceptron(),
             config = config
         ))
     except (ExternalShutdownException, KeyboardInterrupt) as e:

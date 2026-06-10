@@ -1,23 +1,37 @@
 ### Gesture Recognition Module (T4.3)
 
-**Harokopio University of Athens**
+**Harokopio University of Athens, Department of Informatics and Telematics**
 
-**Contact info: kfoteinos@hua.gr**
+**HUA Computer Vision Group**
 
-**TODO**
+**TRIFFID Research Project**
+
+<img src="assets/hua.png" width="100" height="100" />
+<img src="assets/cvgroup.png" width="120" height="100" />
+<img src="assets/triffid.png" width="300" height="100" />
+
+**Editor:** Foteinos Konstantinos
+
+**Contact info:** kfoteinos@hua.gr
+
+If you find this repository useful, please consider citing our releted paper:
+
+> Foteinos K, Angelidis G, Psiris A, Argyriou V, Sarigiannidis P, Papadopoulos GT. FR-GESTURE: An RGBD Dataset For Gesture-based Human-Robot Interaction In First Responder Operations. arXiv preprint arXiv:2602.17573. 2026 Feb 19.
 
 ### General information
 
-This module takes as input aligned RGBD frames and the (global) pose of the camera (i.e. orientation and 2D position) at that timestamp (approximately) and performs gesture classication and pose estimation simultaneously; if a gesture is detected with high confidence and sufficiently close to the camera, it publishes, for a particular human considered to be the signer (e.g. the closest one), the pixel coordinates (uv) of her/his keypoints (e.g. ankles, shoulders), their depth and estimation confidence. Further, it estimates the uv position and depth of his/her by getting the average of the uv and depth correspond to the two shoulders. This information is utilized to predict the (global) longitude and latitude coordinates. Robot actions are triggered.
+This module takes as input aligned RGBD frames and the (global) pose of the camera at that timestamp (approximately) and performs gesture classication and pose estimation simultaneously; if a gesture is detected with high confidence and sufficiently close to the camera, it publishes, for a particular human identified as the signer (e.g., the closest one), the pixel coordinates (uv) of her/his keypoints (e.g., ankles, shoulders), their depth and estimation confidence. Further, it estimates the uv position and depth of his/her by getting the average of the uv and depth correspond to the two shoulders. This information is utilized to predict the (global) longitude and latitude coordinates. Robot actions are triggered.
 
-Transitions between coordinate systems:
+Considered coordinate systems:
 - uvd: uv (image plane) & depth
 - rel_xyz: (optical) camera frame xyz (backprojection) (camera_depth_frame)
 - base_xyz: base link
 - gps: GPS or global or absolute (longitude, latitude)
-- abs_xy: Absolute xy (i.e. the "tangent" plane, oriented by the meridians and parallels)
+- abs_xy: Absolute xy (i.e., the "tangent" plane, oriented by the meridians and parallels)
 
-![Block diagram](BLOCK-DIAGRAM.drawio.png)
+Various filters are applied to reduce false positives. The chain of filters is illustrated in the following figure (dashed boxes correspond to filters that exist but not applied - human localization is performed only if the transformations are available):
+
+![Block diagram](./assets/filtersv2.jpg)
 
 > Use the `JETSON-Dockerfile` for deployment on Jetson
 
@@ -33,12 +47,6 @@ Transitions between coordinate systems:
 | /fix | NavSatFix | Input | - |
 | /gesture_command | String | Output | Stringified GeoJSON, see below |
 <!-- | /dog_odom | Odometry | Input | Orientation should be expresses wr.t. to a global coordinate system (the "standard" xy plane aligned to parallels and meridians) | -->
-
-Parameters (`classifier.py`):
-
--   `NO_UNDERLYING_IMPL`: Make it `False` during integration with the UPC, `True` otherwise (e.g. testing without the UGV interface implementation).
--   `MAX_FPS`: Maximum FPS. Ignores frames if the current FPS approximation is more than this threshold.
--   Topics names should also change.
 
 The exact message format has as follows:
 
@@ -231,11 +239,65 @@ See also the example below, produced by the command `ros2 topic echo /gesture_co
 
 ### Native installation (scripts)
 
+Run the following commands to setup the required python vitural environment:
+
 ```bash
 chmod +x compile_and_run.sh setup_venv.sh run_producer.sh
 ./setup_venv.sh
+```
+
+The following command automatically re-compiles and launches the classification (main) node:
+
+```bash
 ./compile_and_run.sh
 ```
+
+To test with dummy data, run also the following:
+
+```bash
+./run_producer.sh
+```
+
+**Remember to change the topic names in the configuration, if needed (file "gesture_recognition/gesture_recognition/classifier.py", function "main").**
+
+| Configuration Parameter | Explanation | Change? |
+| --- | --- | --- |
+| `debugging` | If True, more log messages will be printed. | ⚠️ |
+| `transforms_available` | The availability of the transformations tree. If False, no coordinate estimations are perforfmed (neither local nor global). | ❌ |
+| `fix_available` | The availability of the global position (gps). | ❌ |
+| `nav_fix_topic` | Topic name for the global position (NavSatFix). | ✅ |
+| `depth_topic` | Topic name for the depth image (Image). | ✅ |
+| `rgb_topic` | Topic name for the RGB image (Image) - aligned with depth. | ✅ |
+| `camera_info` | Topic name for the camera intrinsics (CameraInfo). | ✅ |
+| `output_topic` | Topic name for the published message (human pose, command etc). | ✅ |
+| `target_timeout_seconds` | Timeout for the frame transformation using tf buffer (seconds). | ❌ |
+| `earth_radius` | Constant. | ❌ |
+| `pose_estimation_threshold` | Pose estimator's confidence (0-1) | ⚠️ |
+| `device` | "cpu" or "cuda" (for GPU) | ⚠️ |
+| `classification_threshold` | Classifier's confidence (0-1) | ⚠️ |
+| `min_occurrences` | Minimum successive occurrences to accept a command. | ⚠️ |
+| `no_servers` | UPC action servers unavailability. Let it be False. | ❌ |
+| `server_timeout` | Timeout for the UPC action servers. | ⚠️ |
+| `slop` | Slop for topic synchronization. | ⚠️ |
+| `max_classification_rate` | Maximum recognitions per second (FPS). | ✅ |
+| `depth_max_threshold` | Maximum allowed distance between the signer and the camera (mm). | ✅ |
+| `depth_min_threshold` | Similary, but minimum (mm). | ✅ |
+| `trigger_stop` | Corresponding UPC action server name. | ❌ |
+| `trigger_help_request` | Similarly. | ❌ |
+| `trigger_return_to_base_fetch` | Similarly. | ❌ |
+| `trigger_freeze` | Similarly. | ❌ |
+| `trigger_retreat` | Similarly. | ❌ |
+| `trigger_emergency` | Similarly. | ❌ |
+| `trigger_return_to_base` | Similarly. | ❌ |
+| `trigger_navigation` | Similarly. | ❌ |
+| `min_sec_between_commands` | Minimum time interval between two successive action calls (seconds). | ✅ |
+
+✅ - Change
+
+⚠️ - Change with caution
+
+❌ - Do not change or be very careful
+
 
 ### Native installation (manually)
 
@@ -320,7 +382,6 @@ View the detections topic:
 ros2 topic echo gesture_command --once --full
 ```
 
-------------------------------------------------------------
 ------------------------------------------------------------
 
 ### Instructions for setup (Docker)

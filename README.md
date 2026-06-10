@@ -4,7 +4,7 @@
 
 **Contact info: kfoteinos@hua.gr**
 
-TODO
+**TODO**
 
 ### General information
 

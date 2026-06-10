@@ -39,22 +39,22 @@ class Producer(Node):
         
         self.__color_publisher=self.create_publisher(
             msg_type = SensorImage,
-            topic = "/b2/camera_front_435i/realsense_front_435i/color/image_raw",
+            topic = "/b2/camera_front_435i/realsense_front_435i/color/image_raw_test",
             qos_profile = 10
         )
         self.__depth_publisher=self.create_publisher(
             msg_type = SensorImage,
-            topic = "/b2/camera_front_435i/realsense_front_435i/depth/image_rect_raw",
+            topic = "/b2/camera_front_435i/realsense_front_435i/depth/image_rect_raw_test",
             qos_profile = 10
         )
         self.__info_publisher=self.create_publisher(
             msg_type=CameraInfo,
-            topic="/b2/camera_front_435i/realsense_front_435i/color/camera_info",
+            topic="/b2/camera_front_435i/realsense_front_435i/color/camera_info_test",
             qos_profile = 10
         )
         self.__gps_publisher=self.create_publisher(
             msg_type=NavSatFix,
-            topic="/fix",
+            topic="/fix_test",
             qos_profile = 10
         )
         self.__broadcaster = TransformBroadcaster(self)
@@ -150,7 +150,67 @@ class Producer(Node):
 
             "frames/multi_person.png", # dummy, low confidence
 
-            "frames/high_Emergency-situation_341_color.png"
+            "frames/high_Emergency-situation_341_color.png",
+
+            "frames/high_Fetch-a-gas-mask_337_color.png",
+            "frames/high_Fetch-a-gas-mask_337_color.png",
+            "frames/high_Fetch-a-gas-mask_337_color.png",
+            "frames/high_Fetch-a-gas-mask_337_color.png",
+
+            "frames/high_Fetch-a-shovel_357_color.png",
+            "frames/high_Fetch-a-shovel_357_color.png",
+            "frames/high_Fetch-a-shovel_357_color.png",
+            "frames/high_Fetch-a-shovel_357_color.png"
+
+            "frames/high_Fetch-an-axe_346_color.png",
+            "frames/high_Fetch-an-axe_346_color.png",
+            "frames/high_Fetch-an-axe_346_color.png",
+            "frames/high_Fetch-an-axe_346_color.png"
+
+            "frames/high_Freeze_340_color.png",
+            "frames/high_Freeze_340_color.png",
+            "frames/high_Freeze_340_color.png",
+            "frames/high_Freeze_340_color.png",
+        
+            "frames/high_I-lost-connection_344_color.png",
+            "frames/high_I-lost-connection_344_color.png",
+            "frames/high_I-lost-connection_344_color.png",
+            "frames/high_I-lost-connection_344_color.png",
+
+            "frames/high_I-need-help_342_color.png",
+            "frames/high_I-need-help_342_color.png",
+            "frames/high_I-need-help_342_color.png",
+            "frames/high_I-need-help_342_color.png",
+
+            "frames/high_Move-away-from-here_348_color.png",
+            "frames/high_Move-away-from-here_348_color.png",
+            "frames/high_Move-away-from-here_348_color.png",
+            "frames/high_Move-away-from-here_348_color.png",
+
+            "frames/high_Ok-to-go_347_color.png",
+            "frames/high_Ok-to-go_347_color.png",
+            "frames/high_Ok-to-go_347_color.png",
+            "frames/high_Ok-to-go_347_color.png",
+
+            "frames/high_Operation-finished_339_color.png",
+            "frames/high_Operation-finished_339_color.png",
+            "frames/high_Operation-finished_339_color.png",
+            "frames/high_Operation-finished_339_color.png",
+
+            "frames/STOP_high_16_color.png",
+            "frames/STOP_high_16_color.png",
+            "frames/STOP_high_16_color.png",
+            "frames/STOP_high_16_color.png",
+            "frames/STOP_high_16_color.png",
+            "frames/STOP_high_16_color.png",
+            "frames/STOP_high_16_color.png",
+            "frames/STOP_high_16_color.png",
+            "frames/STOP_high_16_color.png",
+            "frames/STOP_high_16_color.png",
+            "frames/STOP_high_16_color.png",
+            "frames/STOP_high_16_color.png",
+            "frames/STOP_high_16_color.png",
+            "frames/STOP_high_16_color.png",
 
         ]
 

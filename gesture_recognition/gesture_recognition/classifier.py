@@ -61,7 +61,8 @@ class Configuration:
             trigger_retreat:str,
             trigger_emergency:str,
             trigger_return_to_base:str,
-            trigger_navigation:str
+            trigger_navigation:str,
+            min_sec_between_commands:float
             ):
         self.debugging = debugging
         self.transforms_available = transforms_available
@@ -91,6 +92,7 @@ class Configuration:
         self.trigger_emergency = trigger_emergency
         self.trigger_return_to_base = trigger_return_to_base
         self.trigger_navigation = trigger_navigation
+        self.min_sec_between_commands = min_sec_between_commands
 
 # Transformations -------------------------------------------------------------------------------------------------------------------------------------------------------------
 
@@ -206,10 +208,10 @@ class YOLO_Pose_Wrapper(Pose_Estimator):
             "Left Ankle",
             "Right Ankle"
         ]
-    def detect_keypoints(self, image, depth=None) -> list[dict]:
+    def detect_keypoints(self, color, depth=None) -> list[dict]:
         '''
         Parameters:
-            image:      numpy array with dimensions height x width x 3 (H x W x 3)
+            color:      numpy array with dimensions height x width x 3 (H x W x 3)
             depth:      numpy array with dimensions height x width x 1 (H x W x 1)
         Returns:
             [
@@ -222,7 +224,7 @@ class YOLO_Pose_Wrapper(Pose_Estimator):
             ]
             Depth is zero if not available
         '''
-        all_result = self.__pose_estimator(image, verbose=False)[0]
+        all_result = self.__pose_estimator(color, verbose=False)[0]
         result = all_result.keypoints.data
         if self.config.debugging and len(result)>0:
             all_result.save("vis.png")
@@ -398,7 +400,9 @@ class Command_Filter:
             self.__counter += 1
     def restart(self):
         self.__current = None
-        self.__counter= 0
+        self.__counter = 0
+        self.__last_time_triggered = -math.inf
+        self.__not_triggered_due_to_time = False # the action was not accepted, due to the "inter-command" time interval constraint
     def accept(self):
         if self.__counter < self.__min_occurs:
             if self.config.debugging: self.__node.info(f"{self.__counter} < {self.__min_occurs} for {self.__current}")
@@ -406,11 +410,24 @@ class Command_Filter:
         # it occured many times succesively
         elif self.__counter == int(self.__min_occurs):
             if self.config.debugging: self.__node.info(f"{self.__counter} = {self.__min_occurs} for {self.__current}")
-            return True
+            now = time.time()
+            if now - self.__last_time_triggered >= self.config.min_sec_between_commands:
+                self.__last_time_triggered = now
+                return True
+            else:
+                if self.config.debugging: self.__node.info(f"Action rejected, as the last one was accepted before {now - self.__last_time_triggered} < {self.config.min_sec_between_commands} (sec)")
+                self.__not_triggered_due_to_time = True
+                return False
         # the action has already been called
         else:
             if self.config.debugging: self.__node.info(f"{self.__counter} > {self.__min_occurs} for {self.__current}")
-            return False
+            if self.__not_triggered_due_to_time:
+                self.__not_triggered_due_to_time = False
+                self.__last_time_triggered = time.time()
+                if self.config.debugging: self.__node.info("Action accepted (was not accepted previously due to constraint on time between triggers)")
+                return True
+            else:
+                return False
 
 # Action caller ---------------------------------------------------------------------------------------------------------------------------------------------------------------
 
@@ -603,6 +620,7 @@ class Gesture_Commander_Coordinator(Node):
         self.__last = None
         self.__detection_id = 0
         self.config = config
+        self.info(f"Running on {self.config.device}")
 
     def info(self, text:str) -> None:
         self.get_logger().info(f"[{self.__log_counter}] {text}")
@@ -757,15 +775,16 @@ def main():
             trigger_retreat = "/b2/local/trigger_retreat",
             trigger_emergency = "/b2/global/trigger_emergency",
             trigger_return_to_base = "/b2/local/trigger_return_to_base",
-            trigger_navigation = "/b2/local/trigger_navigation"
+            trigger_navigation = "/b2/local/trigger_navigation",
+            min_sec_between_commands = 10 # seconds
         )
         rclpy.init()
         rclpy.spin(node=Gesture_Commander_Coordinator(
             classifier = EfficientNetB0_Wrapper(config=config,path="/home/triffid/hua_ws/gesture_module_v2/gesture_recognition/gesture_recognition/efficientnetb0_color_pretrained_ext.pt"),
-            # classifier = YOLO_Classification_Wrapper("/home/triffid/hua_ws/gesture_module_v2/gesture_recognition/gesture_recognition/yolo26m-cls-FR-GESTURE.pt"),
+            # classifier = YOLO_Classification_Wrapper(config=config,path="/home/triffid/hua_ws/gesture_module_v2/gesture_recognition/gesture_recognition/yolo26m-cls-FR-GESTURE.pt"),
             pose_estimator = YOLO_Pose_Wrapper(model="yolo26n-pose.pt", config=config),
-            perceptron = DEMO_Perceptron(),
-            # perceptron = RealSense_Perceptron(),
+            # perceptron = DEMO_Perceptron(),
+            perceptron = RealSense_Perceptron(),
             config = config
         ))
     except (ExternalShutdownException, KeyboardInterrupt) as e:

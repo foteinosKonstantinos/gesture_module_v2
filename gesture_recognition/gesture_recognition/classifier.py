@@ -96,15 +96,32 @@ class Configuration:
 
 # Transformations -------------------------------------------------------------------------------------------------------------------------------------------------------------
 
-class Transformations:
-    def __init__(self, node:Node, config:Configuration):
+class Transformations(abc.ABC):
+    @abc.abstractmethod
+    def register_node(self, node:Node):pass
+    @abc.abstractmethod
+    def register_initial_gps(self, position:NavSatFix):pass
+    @abc.abstractmethod
+    def uvd_to_rel_xyz(self, u, v, depth, intrinsics) -> np.ndarray:pass
+    @abc.abstractmethod
+    def rel_xyz_to_base_xyz(self, xyz:np.ndarray, stamp) -> tuple[float]:pass
+    @abc.abstractmethod
+    def base_xyz_to_abs_xyz(self, xyz:tuple[float], stamp) -> tuple[float]:pass
+    @abc.abstractmethod
+    def abs_xy_to_gps(self, x, y) -> tuple[float]:pass
+    @abc.abstractmethod
+    def gps_to_abs_xy(self, lat, lon) -> tuple[float]:pass
+
+class Precise_Transformations(Transformations):
+    def __init__(self, config:Configuration):
         '''"node" should implement a .info(str) method'''
-        self.__tf_buffer = tf2_ros.Buffer()
-        self.__tf_listener = tf2_ros.TransformListener(self.__tf_buffer, node)
         self.__init_latitude = None
         self.__init_longitude = None
-        self.__node = node
         self.config = config
+    def register_node(self, node:Node):
+        self.__node = node
+        self.__tf_buffer = tf2_ros.Buffer()
+        self.__tf_listener = tf2_ros.TransformListener(self.__tf_buffer, node)
     def register_initial_gps(self, position:NavSatFix):
         if self.__init_latitude is None or self.__init_longitude is None:
             self.__init_latitude = position.latitude
@@ -168,6 +185,74 @@ class Transformations:
         y = (lat - self.__init_latitude) * (math.pi / 180.0) * self.config.earth_radius # in meters
         x = (lon - self.__init_longitude) * (math.pi / 180.0) * (self.config.earth_radius * math.cos(math.radians(self.__init_latitude))) # in meters
         return float(x * 1000), float(y * 1000) # (in mm)
+
+class Approximate_Transformations(Transformations):
+    def __init__(self, config:Configuration):
+        '''"node" should implement a .info(str) method'''
+        self.__init_latitude = None
+        self.__init_longitude = None
+        self.config = config
+    def register_node(self, node:Node):
+        self.__node = node
+        self.__tf_buffer = tf2_ros.Buffer()
+        self.__tf_listener = tf2_ros.TransformListener(self.__tf_buffer, node)
+    def register_initial_gps(self, position:NavSatFix):pass
+    def uvd_to_rel_xyz(self, u, v, depth, intrinsics) -> np.ndarray:pass
+    def rel_xyz_to_base_xyz(self, xyz:np.ndarray, stamp) -> tuple[float]:pass
+    def base_xyz_to_abs_xyz(self, xyz:tuple[float], stamp) -> tuple[float]:pass
+    def abs_xy_to_gps(self, x, y) -> tuple[float]:pass
+    def gps_to_abs_xy(self, lat, lon) -> tuple[float]:pass
+
+# import math
+
+# try:
+#     from geographiclib.geodesic import Geodesic
+# except ImportError:
+#     Geodesic = None
+
+
+# def _approx_coords(lat_origin, lon_origin, angle_absolute, distance):
+#     d_lat = distance * math.cos(angle_absolute) / 111320
+#     d_lon = distance * math.sin(angle_absolute) / (111320 * math.cos(math.radians(lat_origin)))
+#     return lat_origin + d_lat, lon_origin + d_lon
+
+# def _camera_to_horizontal(x_m, y_m, z_m, roll_ros, pitch_ros):
+#     y_up = -y_m
+
+#     y_pitch = y_up * math.cos(pitch_ros) - z_m * math.sin(pitch_ros)
+#     z_pitch = y_up * math.sin(pitch_ros) + z_m * math.cos(pitch_ros)
+
+#     x_level = x_m * math.cos(roll_ros) - y_pitch * math.sin(roll_ros)
+#     return x_level, z_pitch
+
+
+# # args = (Y,Z) or Z
+# def realsense_coords(lat_origin, lon_origin, yaw_ros, X, *args, roll_ros=0.0, pitch_ros=0.0):
+#     if len(args) == 1:
+#         Y = 0.0
+#         Z = args[0]
+#     elif len(args) == 2:
+#         Y, Z = args
+#     else:
+#         raise TypeError("Function expects X,Z or X,Y,Z after yaw_ros")
+
+#     x_m = X / 1000.0
+#     y_m = Y / 1000.0
+#     z_m = Z / 1000.0
+
+#     camera_heading = math.pi / 2 - yaw_ros
+#     x_level, z_level = _camera_to_horizontal(x_m, y_m, z_m, roll_ros, pitch_ros)
+
+#     angle_relative = math.atan2(x_level, z_level)
+#     angle_absolute = camera_heading + angle_relative
+#     distance = math.hypot(x_level, z_level)
+
+#     if Geodesic is not None:
+#         azimuth_deg = math.degrees(angle_absolute)
+#         result = Geodesic.WGS84.Direct(lat_origin, lon_origin, azimuth_deg, distance)
+#         return result["lat2"], result["lon2"]
+
+#     return _approx_coords(lat_origin, lon_origin, angle_absolute, distance)
 
 # Pose estimation --------------------------------------------------------------------------------------------------------------------------------------------------------------
 
@@ -591,7 +676,8 @@ class Gesture_Commander_Coordinator(Node):
             classifier:Classifier,
             pose_estimator:Pose_Estimator,
             perceptron:Perceptron,
-            config:Configuration
+            config:Configuration,
+            transformations:Transformations
         ):
         super().__init__("gesture_commander")
         self.__time_synchronizer = ApproximateTimeSynchronizer(
@@ -615,8 +701,8 @@ class Gesture_Commander_Coordinator(Node):
         self.__command_filter.restart()
         self.__perceptron = perceptron
         self.__action_caller = Action_Caller(node=self, config=config)
-        if config.transforms_available:
-            self.__transformations = Transformations(node=self, config=config)
+        self.__transformations = transformations
+        self.__transformations.register_node(self)
         self.__log_counter = 0
         self.__last = None
         self.__detection_id = 0
@@ -787,7 +873,8 @@ def main():
             pose_estimator = YOLO_Pose_Wrapper(model="yolo26n-pose.pt", config=config),
             perceptron = DEMO_Perceptron(),
             # perceptron = RealSense_Perceptron(),
-            config = config
+            config = config,
+            transformations = Approximate_Transformations(config=config)
         ))
     except (ExternalShutdownException, KeyboardInterrupt) as e:
         print(e)

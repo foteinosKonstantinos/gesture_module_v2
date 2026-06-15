@@ -15,6 +15,7 @@ from sensor_msgs.msg import Image, CameraInfo, NavSatFix
 import tf2_ros
 from tf2_geometry_msgs import PointStamped
 from geometry_msgs.msg import Pose, Transform
+from nav_msgs.msg import Odometry
 from message_filters import Subscriber, ApproximateTimeSynchronizer
 import cv2
 import json
@@ -29,6 +30,7 @@ from robal_interfaces.action import NavigateTo, Trigger, ReturnToBaseFetch, Help
 import time
 import abc
 import os
+from geographiclib.geodesic import Geodesic
 
 # Configuration-- -------------------------------------------------------------------------------------------------------------------------------------------------------------
 
@@ -38,6 +40,7 @@ class Configuration:
             transforms_available:bool,
             fix_available:bool,
             nav_fix_topic:str,
+            odom_topic:str,
             depth_topic:str,
             rgb_topic:str,
             camera_info:str,
@@ -68,6 +71,7 @@ class Configuration:
         self.transforms_available = transforms_available
         self.fix_available = fix_available
         self.nav_fix_topic = nav_fix_topic
+        self.odom_topic = odom_topic
         self.depth_topic = depth_topic
         self.rgb_topic = rgb_topic
         self.camera_info = camera_info
@@ -98,19 +102,19 @@ class Configuration:
 
 class Transformations(abc.ABC):
     @abc.abstractmethod
-    def register_node(self, node:Node):pass
+    def register_node(self, node:Node, **kwargs):pass
     @abc.abstractmethod
-    def register_initial_gps(self, position:NavSatFix):pass
+    def register_initial_gps(self, position:NavSatFix, **kwargs):pass
     @abc.abstractmethod
-    def uvd_to_rel_xyz(self, u, v, depth, intrinsics) -> np.ndarray:pass
+    def uvd_to_rel_xyz(self, u, v, depth, intrinsics, **kwargs) -> np.ndarray:pass
     @abc.abstractmethod
-    def rel_xyz_to_base_xyz(self, xyz:np.ndarray, stamp) -> tuple[float]:pass
+    def rel_xyz_to_base_xyz(self, xyz:np.ndarray, stamp, **kwargs) -> tuple[float]:pass
     @abc.abstractmethod
-    def base_xyz_to_abs_xyz(self, xyz:tuple[float], stamp) -> tuple[float]:pass
+    def base_xyz_to_abs_xyz(self, xyz:tuple[float], stamp, **kwargs) -> tuple[float]:pass
     @abc.abstractmethod
-    def abs_xy_to_gps(self, x, y) -> tuple[float]:pass
+    def abs_xy_to_gps(self, x, y, **kwargs) -> tuple[float]:pass
     @abc.abstractmethod
-    def gps_to_abs_xy(self, lat, lon) -> tuple[float]:pass
+    def gps_to_abs_xy(self, lat, lon, **kwargs) -> tuple[float]:pass
 
 class Precise_Transformations(Transformations):
     def __init__(self, config:Configuration):
@@ -118,17 +122,17 @@ class Precise_Transformations(Transformations):
         self.__init_latitude = None
         self.__init_longitude = None
         self.config = config
-    def register_node(self, node:Node):
+    def register_node(self, node:Node, **kwargs):
         self.__node = node
         self.__tf_buffer = tf2_ros.Buffer()
         self.__tf_listener = tf2_ros.TransformListener(self.__tf_buffer, node)
-    def register_initial_gps(self, position:NavSatFix):
+    def register_initial_gps(self, position:NavSatFix, **kwargs):
         if self.__init_latitude is None or self.__init_longitude is None:
             self.__init_latitude = position.latitude
             self.__init_longitude = position.longitude
             self.__node.info(f"Initial position in (latitude, longitude) = ({self.__init_latitude}, {self.__init_longitude})")
     # @staticmethod
-    def uvd_to_rel_xyz(self, u, v, depth, intrinsics) -> np.ndarray:
+    def uvd_to_rel_xyz(self, u, v, depth, intrinsics, **kwargs) -> np.ndarray:
         '''
         uvd -> rel_xyz (Backprojects a point to 3D space)
         Parameters:
@@ -143,8 +147,8 @@ class Precise_Transformations(Transformations):
         p_3D = depth * (np.linalg.inv(intrinsics) @ p_2D_h)
         return p_3D
     # @staticmethod
-    def rel_xyz_to_base_xyz(self, xyz:np.ndarray, stamp) -> tuple[float]:
-        '''xyz in mm'''
+    def rel_xyz_to_base_xyz(self, xyz:np.ndarray, stamp, **kwargs) -> tuple[float]:
+        '''input/output xyz in mm'''
         msg = PointStamped()
         msg.header.frame_id = "camera_depth_frame"
         msg.header.stamp = stamp
@@ -154,7 +158,7 @@ class Precise_Transformations(Transformations):
         transform = self.__tf_buffer.transform(msg,"base_link",timeout=rclpy.duration.Duration(seconds=self.config.target_timeout_seconds))
         return float(transform.point.x) * 1000,float(transform.point.y) * 1000,float(transform.point.z) * 1000
     # @staticmethod
-    def base_xyz_to_abs_xyz(self, xyz:tuple[float], stamp) -> tuple[float]:
+    def base_xyz_to_abs_xyz(self, xyz:tuple[float], stamp, **kwargs) -> tuple[float]:
         '''xyz in mm'''
         msg = PointStamped()
         msg.header.frame_id = "base_link"
@@ -165,7 +169,7 @@ class Precise_Transformations(Transformations):
         transform = self.__tf_buffer.transform(msg,"map",timeout=rclpy.duration.Duration(seconds=self.config.target_timeout_seconds)) # map or odom
         return float(transform.point.x) * 1000,float(transform.point.y) * 1000,float(transform.point.z) * 1000
     # @staticmethod
-    def abs_xy_to_gps(self, x, y) -> tuple[float]:
+    def abs_xy_to_gps(self, x, y, **kwargs) -> tuple[float]:
         '''
         abs_xy -> GPS
         Parameters:
@@ -178,7 +182,7 @@ class Precise_Transformations(Transformations):
         lon = self.__init_longitude + ((x/1000) / (self.config.earth_radius * math.cos(math.radians(self.__init_latitude)))) * (180.0 / math.pi)
         return float(lon), float(lat)
     # @staticmethod
-    def gps_to_abs_xy(self, lat, lon) -> tuple[float]:
+    def gps_to_abs_xy(self, lat, lon, **kwargs) -> tuple[float]:
         '''
         GPS -> abs_xy (the inverse of the previous)
         '''
@@ -188,71 +192,94 @@ class Precise_Transformations(Transformations):
 
 class Approximate_Transformations(Transformations):
     def __init__(self, config:Configuration):
-        '''"node" should implement a .info(str) method'''
+        '''"node" should implement a .info(str) method
+            robot = camera frame
+        '''
         self.__init_latitude = None
         self.__init_longitude = None
         self.config = config
     def register_node(self, node:Node):
         self.__node = node
-        self.__tf_buffer = tf2_ros.Buffer()
-        self.__tf_listener = tf2_ros.TransformListener(self.__tf_buffer, node)
-    def register_initial_gps(self, position:NavSatFix):pass
-    def uvd_to_rel_xyz(self, u, v, depth, intrinsics) -> np.ndarray:pass
-    def rel_xyz_to_base_xyz(self, xyz:np.ndarray, stamp) -> tuple[float]:pass
-    def base_xyz_to_abs_xyz(self, xyz:tuple[float], stamp) -> tuple[float]:pass
-    def abs_xy_to_gps(self, x, y) -> tuple[float]:pass
-    def gps_to_abs_xy(self, lat, lon) -> tuple[float]:pass
+    def register_initial_gps(self, position:NavSatFix):
+        if self.__init_latitude is None or self.__init_longitude is None:
+            self.__init_latitude = position.latitude
+            self.__init_longitude = position.longitude
+            self.__node.info(f"Initial position in (latitude, longitude) = ({self.__init_latitude}, {self.__init_longitude})")
+    def uvd_to_rel_xyz(self, u, v, depth, intrinsics) -> np.ndarray:
+        '''
+        uvd -> rel_xyz (Backprojects a point to 3D space)
+        Parameters:
+            u:          x' (horizontal) (in pixels)
+            v:          y' (vertical) (in pixels)
+            depth:      disantce from the optical center (in mm)
+            intrinsics: camera intrinsics (in pixels)
+        Returns:
+            the relative position in 3D space (in mm) w.r.t. to camera frame
+        '''
+        p_2D_h = np.asarray([u, v, 1]) # homogeneous coordinates
+        p_3D = depth * (np.linalg.inv(intrinsics) @ p_2D_h)
+        return p_3D
+    def rel_xyz_to_base_xyz(self, xyz:np.ndarray, stamp, roll_ros=0.0, pitch_ros=0.0) -> tuple[float]:
+        '''input xyz in mm, output (xy) in mm, camera to horizontal
+        returns z = 0'''
+        xyz_m = xyz / 1000
+        x_m, y_m, z_m = xyz_m[0], xyz_m[1], xyz_m[2]
+        y_up = -y_m
+        y_pitch = y_up * math.cos(pitch_ros) - z_m * math.sin(pitch_ros)
+        z_pitch = y_up * math.sin(pitch_ros) + z_m * math.cos(pitch_ros)
+        x_level = x_m * math.cos(roll_ros) - y_pitch * math.sin(roll_ros)
+        return x_level * 1000, z_pitch * 1000, 0
 
-# import math
+    @staticmethod
+    def __quaternion_to_rpy(qx, qy, qz, qw):
+        # https://en.wikipedia.org/wiki/Conversion_between_quaternions_and_Euler_angles
+        return {
+            "roll": math.atan2(2.0*(qw*qx + qy*qz), 1.0 - 2.0*(qx*qx + qy*qy)),
+            "pitch": math.asin(2.0*(qw*qy - qz*qx)),
+            "yaw": math.atan2(2.0*(qw*qz + qx*qy), 1.0 - 2.0*(qy*qy + qz*qz))
+        }
 
-# try:
-#     from geographiclib.geodesic import Geodesic
-# except ImportError:
-#     Geodesic = None
+    @staticmethod
+    def __xy_to_polar(x, y, odometry:Odometry):
+        '''x,y in mm, output in meters (radius/distance) and radians (angle)'''
+        x_m = x / 1000
+        y_m = y / 1000
+        quaternion = odometry.pose.pose.orientation
+        camera_heading = math.pi / 2 - Approximate_Transformations.__quaternion_to_rpy(quaternion.x, quaternion.y, quaternion.z, quaternion.w)["yaw"]
+        angle_relative = math.atan2(x_m, y_m)
+        angle_absolute = camera_heading + angle_relative
+        distance = math.hypot(x_m, y_m)
+        return distance, angle_absolute
 
+    def __polar_to_gps(self, distance, angle_absolute):
+        '''meters and radians, returns lat/lon'''
+        azimuth_deg = math.degrees(angle_absolute)
+        result = Geodesic.WGS84.Direct(self.__init_latitude, self.__init_longitude, azimuth_deg, distance)
+        return result["lat2"], result["lon2"]
 
-# def _approx_coords(lat_origin, lon_origin, angle_absolute, distance):
-#     d_lat = distance * math.cos(angle_absolute) / 111320
-#     d_lon = distance * math.sin(angle_absolute) / (111320 * math.cos(math.radians(lat_origin)))
-#     return lat_origin + d_lat, lon_origin + d_lon
+    def base_xyz_to_abs_xyz(self, xyz:tuple[float], stamp, odometry:Odometry) -> tuple[float]:
+        '''input/output in mm'''
+        distance, angle_absolute = self.__xy_to_polar(x=xyz[0], y=xyz[1], odometry=odometry)
+        lat, lon = self.__polar_to_gps(distance=distance, angle_absolute=angle_absolute)
+        return self.gps_to_abs_xy(lat=lat, lon=lon) # in mm
 
-# def _camera_to_horizontal(x_m, y_m, z_m, roll_ros, pitch_ros):
-#     y_up = -y_m
-
-#     y_pitch = y_up * math.cos(pitch_ros) - z_m * math.sin(pitch_ros)
-#     z_pitch = y_up * math.sin(pitch_ros) + z_m * math.cos(pitch_ros)
-
-#     x_level = x_m * math.cos(roll_ros) - y_pitch * math.sin(roll_ros)
-#     return x_level, z_pitch
-
-
-# # args = (Y,Z) or Z
-# def realsense_coords(lat_origin, lon_origin, yaw_ros, X, *args, roll_ros=0.0, pitch_ros=0.0):
-#     if len(args) == 1:
-#         Y = 0.0
-#         Z = args[0]
-#     elif len(args) == 2:
-#         Y, Z = args
-#     else:
-#         raise TypeError("Function expects X,Z or X,Y,Z after yaw_ros")
-
-#     x_m = X / 1000.0
-#     y_m = Y / 1000.0
-#     z_m = Z / 1000.0
-
-#     camera_heading = math.pi / 2 - yaw_ros
-#     x_level, z_level = _camera_to_horizontal(x_m, y_m, z_m, roll_ros, pitch_ros)
-
-#     angle_relative = math.atan2(x_level, z_level)
-#     angle_absolute = camera_heading + angle_relative
-#     distance = math.hypot(x_level, z_level)
-
-#     if Geodesic is not None:
-#         azimuth_deg = math.degrees(angle_absolute)
-#         result = Geodesic.WGS84.Direct(lat_origin, lon_origin, azimuth_deg, distance)
-#         return result["lat2"], result["lon2"]
-
-#     return _approx_coords(lat_origin, lon_origin, angle_absolute, distance)
+    def abs_xy_to_gps(self, x, y) -> tuple[float]:
+        '''
+        abs_xy -> GPS
+        Parameters:
+            x,y:        With origin the initial robot position and "orientation" the same with the "flatten" meridians/parallels (in mm)
+        Returns:
+            - longitude:  GPS (degrees)
+            - latitude:   GPS (degrees)
+        '''
+        lat = self.__init_latitude + ((y/1000) / self.config.earth_radius) * (180.0 / math.pi)
+        lon = self.__init_longitude + ((x/1000) / (self.config.earth_radius * math.cos(math.radians(self.__init_latitude)))) * (180.0 / math.pi)
+        return float(lon), float(lat)
+    
+    def gps_to_abs_xy(self, lat, lon) -> tuple[float]:
+        y = (lat - self.__init_latitude) * (math.pi / 180.0) * self.config.earth_radius # in meters
+        x = (lon - self.__init_longitude) * (math.pi / 180.0) * (self.config.earth_radius * math.cos(math.radians(self.__init_latitude))) # in meters
+        return float(x * 1000), float(y * 1000) # (in mm)
 
 # Pose estimation --------------------------------------------------------------------------------------------------------------------------------------------------------------
 
@@ -685,7 +712,8 @@ class Gesture_Commander_Coordinator(Node):
                 Subscriber(node=self, msg_type=Image, topic=config.rgb_topic), 
                 Subscriber(node=self, msg_type=Image, topic=config.depth_topic), 
                 Subscriber(node=self, msg_type=CameraInfo, topic=config.camera_info),
-            ] + ([Subscriber(node=self, msg_type=NavSatFix, topic=config.nav_fix_topic)] if config.fix_available else []),
+            ] + ([Subscriber(node=self, msg_type=NavSatFix, topic=config.nav_fix_topic),
+                  Subscriber(node=self, msg_type=Odometry, topic=config.odom_topic)] if config.fix_available else []),
             queue_size=10,
             slop=config.slop
         )
@@ -718,7 +746,7 @@ class Gesture_Commander_Coordinator(Node):
     def warn(self, text:str) -> None:
         self.get_logger().warning(f"[{self.__log_counter}] {text}")
 
-    def __main_callback(self, color_image:Image, depth_image:Image, intrinsics:CameraInfo, global_position:NavSatFix=None):
+    def __main_callback(self, color_image:Image, depth_image:Image, intrinsics:CameraInfo, global_position:NavSatFix=None, odometry:Odometry=None):
         '''
         Parameters:
             color_image:    8-bit RGB image (H x W x 3)
@@ -840,6 +868,7 @@ def main():
             transforms_available = False,
             fix_available = False,
             nav_fix_topic = "/fix_test",
+            odom_topic = "/dog_odom",
             depth_topic = "/b2/camera_front_435i/realsense_front_435i/depth/image_rect_raw_test",
             rgb_topic = "/b2/camera_front_435i/realsense_front_435i/color/image_raw_test",
             camera_info = "/b2/camera_front_435i/realsense_front_435i/color/camera_info_test",

@@ -1,6 +1,7 @@
 import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import CameraInfo, Image as SensorImage, NavSatFix
+from nav_msgs.msg import Odometry
 from tf2_geometry_msgs import TransformStamped
 from tf2_ros import TransformBroadcaster
 from PIL import Image as PILImage
@@ -55,6 +56,11 @@ class Producer(Node):
         self.__gps_publisher=self.create_publisher(
             msg_type=NavSatFix,
             topic="/fix_test",
+            qos_profile = 10
+        )
+        self.__odo_publisher=self.create_publisher(
+            msg_type=Odometry,
+            topic="/dog_odom",
             qos_profile = 10
         )
         self.__broadcaster = TransformBroadcaster(self)
@@ -300,6 +306,14 @@ class Producer(Node):
         msg.header.stamp = stamp
         (msg.longitude, msg.latitude) = abs_xy_to_gps(x=self.__x_mm,y=0)
         self.__gps_publisher.publish(msg)
+
+        msg = Odometry()
+        q = euler_to_quaternion(roll=0,pitch=0,yaw=np.pi/2)
+        msg.pose.pose.orientation.x = q[0].item()
+        msg.pose.pose.orientation.y = q[1].item()
+        msg.pose.pose.orientation.z = q[2].item()
+        msg.pose.pose.orientation.w = q[3].item()
+        self.__odo_publisher.publish(msg)
 
         self.__x_mm += 1000
 

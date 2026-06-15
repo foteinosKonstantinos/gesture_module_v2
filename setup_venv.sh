@@ -19,7 +19,7 @@ pip install torchvision-0.18.0a0+6043bc2-cp310-cp310-linux_aarch64.whl
 rm *.whl
 
 echo "Installing ultralytics compatible with the previous torch versions ..."
-pip install numpy==1.26.4 opencv-python==4.10.0.84 ultralytics
+pip install numpy==1.26.4 opencv-python==4.10.0.84 ultralytics geographiclib
 pip install colcon-common-extensions setuptools==58.2.0
 
 echo "Finished. Please update setup.cfg (and execute 'source ./$VENV_NAME/bin/activate' to activate the env)."

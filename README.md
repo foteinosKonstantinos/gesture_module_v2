@@ -48,7 +48,7 @@ Various filters are applied to reduce false positives. The chain of filters is i
 | /camera_front_435i/realsense_front_435i/color/camera_info | CameraInfo | Input | - |
 | /fix | NavSatFix | Input | - |
 | /gesture_command | String | Output | Stringified GeoJSON, see below |
-<!-- | /dog_odom | Odometry | Input | Orientation should be expresses wr.t. to a global coordinate system (the "standard" xy plane aligned to parallels and meridians) | -->
+| /dog_odom | Odometry | Input | Orientation should be expresses wr.t. to a global coordinate system (the "standard" xy plane aligned to parallels and meridians) |
 
 The exact message format has as follows:
 

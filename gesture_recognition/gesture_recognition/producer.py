@@ -60,7 +60,7 @@ class Producer(Node):
         )
         self.__odo_publisher=self.create_publisher(
             msg_type=Odometry,
-            topic="/dog_odom",
+            topic="/dog_odom_test",
             qos_profile = 10
         )
         self.__broadcaster = TransformBroadcaster(self)
@@ -309,6 +309,7 @@ class Producer(Node):
 
         msg = Odometry()
         q = euler_to_quaternion(roll=0,pitch=0,yaw=np.pi/2)
+        msg.header.stamp = stamp
         msg.pose.pose.orientation.x = q[0].item()
         msg.pose.pose.orientation.y = q[1].item()
         msg.pose.pose.orientation.z = q[2].item()
@@ -322,9 +323,8 @@ def main():
     try:
         rclpy.init()
         rclpy.spin(node=Producer())
-    except (ExternalShutdownException, KeyboardInterrupt):
-        pass
-
+    except (ExternalShutdownException, KeyboardInterrupt) as e:
+        print(e)
 
 if __name__ == '__main__':
     main()

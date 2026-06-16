@@ -10,7 +10,6 @@ import rclpy.duration
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 from rclpy.action import ActionClient
-from ament_index_python.packages import get_package_share_directory
 from std_msgs.msg import String
 from sensor_msgs.msg import Image, CameraInfo, NavSatFix
 import tf2_ros
@@ -275,10 +274,10 @@ class Approximate_Transformations(Transformations):
         result = Geodesic.WGS84.Direct(self.__init_latitude, self.__init_longitude, azimuth_deg, distance)
         return result["lat2"], result["lon2"]
     def base_xyz_to_abs_xyz(self, xyz:tuple[float], stamp, odometry:Odometry) -> tuple[float]:
-        '''input/output in mm'''
+        '''input/output in mm, z=0'''
         distance, angle_absolute = self.__xy_to_polar(x=xyz[0], y=xyz[1], odometry=odometry)
         lat, lon = self.__polar_to_gps(distance=distance, angle_absolute=angle_absolute)
-        return self.gps_to_abs_xy(lat=lat, lon=lon) # in mm
+        return *self.gps_to_abs_xy(lat=lat, lon=lon), 0 # in mm
     def abs_xy_to_gps(self, x, y) -> tuple[float]:
         '''
         abs_xy -> GPS
@@ -762,7 +761,7 @@ class Gesture_Commander_Coordinator(Node):
     def warn(self, text:str) -> None:
         self.get_logger().warning(f"[{self.__log_counter}] {text}")
 
-    def __main_callback(self, color_image:Image, depth_image:Image, intrinsics:CameraInfo, global_position:NavSatFix=None, odometry:Odometry=None):
+    def __main_callback(self, color_image:Image, depth_image:Image, intrinsics:CameraInfo, global_position:NavSatFix|None=None, odometry:Odometry|None=None):
         '''
         Parameters:
             color_image:    8-bit RGB image (H x W x 3)
@@ -878,7 +877,7 @@ def main():
             debugging = True,
             odom_fix_required = True,
             nav_fix_topic = "/fix_test",
-            odom_topic = "/dog_odom",
+            odom_topic = "/dog_odom_test",
             depth_topic = "/b2/camera_front_435i/realsense_front_435i/depth/image_rect_raw_test",
             rgb_topic = "/b2/camera_front_435i/realsense_front_435i/color/image_raw_test",
             camera_info = "/b2/camera_front_435i/realsense_front_435i/color/camera_info_test",
@@ -906,20 +905,15 @@ def main():
             min_sec_between_commands = 1 # seconds
         )
         rclpy.init()
-        main_node = Gesture_Commander_Coordinator(
-            classifier = EfficientNetB0_Wrapper(config=config,path=os.path.join(get_package_share_directory("gesture_recognition"), "efficientnetb0_color_pretrained_ext.pt")),
-            # classifier = YOLO_Classification_Wrapper(config=config,path=os.path.join(get_package_share_directory("gesture_recognition"), "yolo26m-cls-FR-GESTURE.pt")),
+        rclpy.spin(node=Gesture_Commander_Coordinator(
+            classifier = EfficientNetB0_Wrapper(config=config,path="/home/triffid/hua_ws/gesture_module_v2/gesture_recognition/gesture_recognition/efficientnetb0_color_pretrained_ext.pt"),
+            # classifier = YOLO_Classification_Wrapper(config=config,path="/home/triffid/hua_ws/gesture_module_v2/gesture_recognition/gesture_recognition/yolo26m-cls-FR-GESTURE.pt"),
             pose_estimator = YOLO_Pose_Wrapper(model="yolo26n-pose.pt", config=config),
             perceptron = DEMO_Perceptron(),
             # perceptron = RealSense_Perceptron(),
             config = config,
             transformations = Approximate_Transformations(config=config)
-        )
-        try:
-            rclpy.spin(node=main_node)
-        finally:
-            main_node.destroy_node()
-            rclpy.shutdown()
+        ))
     except (ExternalShutdownException, KeyboardInterrupt) as e:
         print(e)
         

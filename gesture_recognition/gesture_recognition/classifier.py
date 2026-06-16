@@ -10,6 +10,7 @@ import rclpy.duration
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 from rclpy.action import ActionClient
+from ament_index_python.packages import get_package_share_directory
 from std_msgs.msg import String
 from sensor_msgs.msg import Image, CameraInfo, NavSatFix
 import tf2_ros
@@ -37,8 +38,7 @@ from geographiclib.geodesic import Geodesic
 class Configuration:
     def __init__(self,
             debugging:bool,
-            transforms_available:bool,
-            fix_available:bool,
+            odom_fix_required:bool,
             nav_fix_topic:str,
             odom_topic:str,
             depth_topic:str,
@@ -68,8 +68,7 @@ class Configuration:
             min_sec_between_commands:float
             ):
         self.debugging = debugging
-        self.transforms_available = transforms_available
-        self.fix_available = fix_available
+        self.odom_fix_required = odom_fix_required
         self.nav_fix_topic = nav_fix_topic
         self.odom_topic = odom_topic
         self.depth_topic = depth_topic
@@ -193,7 +192,7 @@ class Precise_Transformations(Transformations):
 class Approximate_Transformations(Transformations):
     def __init__(self, config:Configuration):
         '''"node" should implement a .info(str) method
-            robot = camera frame
+            Assumes that the base and camera frame have the same origin
         '''
         self.__init_latitude = None
         self.__init_longitude = None
@@ -220,8 +219,15 @@ class Approximate_Transformations(Transformations):
         p_3D = depth * (np.linalg.inv(intrinsics) @ p_2D_h)
         return p_3D
     def rel_xyz_to_base_xyz(self, xyz:np.ndarray, stamp, roll_ros=0.0, pitch_ros=0.0) -> tuple[float]:
-        '''input xyz in mm, output (xy) in mm, camera to horizontal
-        returns z = 0'''
+        '''
+        Parameters:
+            xyz:        xyz in mm w.r.t. camera frame
+            stamp:      not used (required by the interaface)
+            roll_ros:   angle between camera and robot (default 0)
+            picth_ros:  similarly (default 0)
+        Returns:
+            xyz w.r.t. to base frame (e.g., horizontal plane with the the robot's orientation) in mm and z=0
+        '''
         xyz_m = xyz / 1000
         x_m, y_m, z_m = xyz_m[0], xyz_m[1], xyz_m[2]
         y_up = -y_m
@@ -240,8 +246,15 @@ class Approximate_Transformations(Transformations):
         }
 
     @staticmethod
-    def __xy_to_polar(x, y, odometry:Odometry):
-        '''x,y in mm, output in meters (radius/distance) and radians (angle)'''
+    def __xy_to_polar(x, y, odometry:Odometry): # apostolakis
+        '''
+        Parameters:
+            x:          in mm (w.r.t. to robot frame)
+            y:          in mm (w.r.t. to robot frame)
+            odometry:   needs the (global) orientation
+        Returns:
+            Absolute polar coordinates (in meters and radians)
+        '''
         x_m = x / 1000
         y_m = y / 1000
         quaternion = odometry.pose.pose.orientation
@@ -250,33 +263,36 @@ class Approximate_Transformations(Transformations):
         angle_absolute = camera_heading + angle_relative
         distance = math.hypot(x_m, y_m)
         return distance, angle_absolute
-
-    def __polar_to_gps(self, distance, angle_absolute):
-        '''meters and radians, returns lat/lon'''
+    def __polar_to_gps(self, distance, angle_absolute): # apostolakis
+        '''
+        Parameters:
+            distance:       in meters (absolute polar coordinates)
+            angle_absolute: in radians (absolute polar coordinates)
+        Returns:
+            lat/lon (GPS)    
+        '''
         azimuth_deg = math.degrees(angle_absolute)
         result = Geodesic.WGS84.Direct(self.__init_latitude, self.__init_longitude, azimuth_deg, distance)
         return result["lat2"], result["lon2"]
-
     def base_xyz_to_abs_xyz(self, xyz:tuple[float], stamp, odometry:Odometry) -> tuple[float]:
         '''input/output in mm'''
         distance, angle_absolute = self.__xy_to_polar(x=xyz[0], y=xyz[1], odometry=odometry)
         lat, lon = self.__polar_to_gps(distance=distance, angle_absolute=angle_absolute)
         return self.gps_to_abs_xy(lat=lat, lon=lon) # in mm
-
     def abs_xy_to_gps(self, x, y) -> tuple[float]:
         '''
         abs_xy -> GPS
         Parameters:
             x,y:        With origin the initial robot position and "orientation" the same with the "flatten" meridians/parallels (in mm)
         Returns:
-            - longitude:  GPS (degrees)
-            - latitude:   GPS (degrees)
+            longitude:  GPS (degrees)
+            latitude:   GPS (degrees)
         '''
         lat = self.__init_latitude + ((y/1000) / self.config.earth_radius) * (180.0 / math.pi)
         lon = self.__init_longitude + ((x/1000) / (self.config.earth_radius * math.cos(math.radians(self.__init_latitude)))) * (180.0 / math.pi)
         return float(lon), float(lat)
-    
     def gps_to_abs_xy(self, lat, lon) -> tuple[float]:
+        '''output xy in mm'''
         y = (lat - self.__init_latitude) * (math.pi / 180.0) * self.config.earth_radius # in meters
         x = (lon - self.__init_longitude) * (math.pi / 180.0) * (self.config.earth_radius * math.cos(math.radians(self.__init_latitude))) # in meters
         return float(x * 1000), float(y * 1000) # (in mm)
@@ -713,7 +729,7 @@ class Gesture_Commander_Coordinator(Node):
                 Subscriber(node=self, msg_type=Image, topic=config.depth_topic), 
                 Subscriber(node=self, msg_type=CameraInfo, topic=config.camera_info),
             ] + ([Subscriber(node=self, msg_type=NavSatFix, topic=config.nav_fix_topic),
-                  Subscriber(node=self, msg_type=Odometry, topic=config.odom_topic)] if config.fix_available else []),
+                  Subscriber(node=self, msg_type=Odometry, topic=config.odom_topic)] if config.odom_fix_required else []),
             queue_size=10,
             slop=config.slop
         )
@@ -760,8 +776,7 @@ class Gesture_Commander_Coordinator(Node):
 
         try:
         
-            if self.config.transforms_available:
-                self.__transformations.register_initial_gps(global_position)
+            self.__transformations.register_initial_gps(global_position)
 
             if self.__last is None: # first frame
                 self.__last = time.time()
@@ -818,15 +833,11 @@ class Gesture_Commander_Coordinator(Node):
 
             self.info(f"\033[1;102mACTION ACCEPTED FOR {prediction['class']}\033[0;0m")
 
-            if self.config.transforms_available:
-                rel_xyz = self.__transformations.uvd_to_rel_xyz(u=argmin_u,v=argmin_v,depth=min_depth,intrinsics=np.asarray(intrinsics.k).reshape((3,3)))
-                base_xyz = self.__transformations.rel_xyz_to_base_xyz(xyz=rel_xyz,stamp=color_image.header.stamp)
-                abs_xyz = self.__transformations.base_xyz_to_abs_xyz(xyz=base_xyz,stamp=color_image.header.stamp)
-                gps = self.__transformations.abs_xy_to_gps(x=abs_xyz[0],y=abs_xyz[1]) # lon, lat
-                self.info(f"Detection position: {gps} (GPS) [or ({self.__transformations.gps_to_abs_xy(lat=gps[1],lon=gps[0])}) (xy in mm)]")
-            else:
-                abs_xyz = (0, 0, 0)
-                self.warn("No available frame transformations")
+            rel_xyz = self.__transformations.uvd_to_rel_xyz(u=argmin_u,v=argmin_v,depth=min_depth,intrinsics=np.asarray(intrinsics.k).reshape((3,3)))
+            base_xyz = self.__transformations.rel_xyz_to_base_xyz(xyz=rel_xyz,stamp=color_image.header.stamp)
+            abs_xyz = self.__transformations.base_xyz_to_abs_xyz(xyz=base_xyz,stamp=color_image.header.stamp, odometry=odometry)
+            gps = self.__transformations.abs_xy_to_gps(x=abs_xyz[0],y=abs_xyz[1]) # lon, lat
+            self.info(f"Detection position: {gps} (GPS) [or ({self.__transformations.gps_to_abs_xy(lat=gps[1],lon=gps[0])}) (xy in mm)]")
 
             self.__action_caller.trigger_action(gesture_command=prediction['class'], x=abs_xyz[0], y=abs_xyz[1], z=abs_xyz[2], q0=0, q1=0, q2=0, q3=1)
             self.__publisher.publish(String(data=json.dumps({
@@ -836,7 +847,7 @@ class Gesture_Commander_Coordinator(Node):
                         "type": "Feature",
                         "geometry": {
                             "type": "Point",
-                            "coordinates": list(gps) if self.config.transforms_available and self.config.fix_available else None
+                            "coordinates": list(gps)
                         },
                         "properties": {
                             "class":prediction["class"],
@@ -849,7 +860,7 @@ class Gesture_Commander_Coordinator(Node):
                                 "rel_x":rel_xyz[0],
                                 "rel_y":rel_xyz[1],
                                 "rel_z":rel_xyz[2]
-                            } if self.config.transforms_available and self.config.fix_available else None
+                            }
                         }
                     }
                 ]
@@ -865,8 +876,7 @@ def main():
     try:
         config = Configuration(
             debugging = True,
-            transforms_available = False,
-            fix_available = False,
+            odom_fix_required = True,
             nav_fix_topic = "/fix_test",
             odom_topic = "/dog_odom",
             depth_topic = "/b2/camera_front_435i/realsense_front_435i/depth/image_rect_raw_test",
@@ -896,18 +906,22 @@ def main():
             min_sec_between_commands = 1 # seconds
         )
         rclpy.init()
-        rclpy.spin(node=Gesture_Commander_Coordinator(
-            classifier = EfficientNetB0_Wrapper(config=config,path="/home/triffid/hua_ws/gesture_module_v2/gesture_recognition/gesture_recognition/efficientnetb0_color_pretrained_ext.pt"),
-            # classifier = YOLO_Classification_Wrapper(config=config,path="/home/triffid/hua_ws/gesture_module_v2/gesture_recognition/gesture_recognition/yolo26m-cls-FR-GESTURE.pt"),
+        main_node = Gesture_Commander_Coordinator(
+            classifier = EfficientNetB0_Wrapper(config=config,path=os.path.join(get_package_share_directory("gesture_recognition"), "efficientnetb0_color_pretrained_ext.pt")),
+            # classifier = YOLO_Classification_Wrapper(config=config,path=os.path.join(get_package_share_directory("gesture_recognition"), "yolo26m-cls-FR-GESTURE.pt")),
             pose_estimator = YOLO_Pose_Wrapper(model="yolo26n-pose.pt", config=config),
             perceptron = DEMO_Perceptron(),
             # perceptron = RealSense_Perceptron(),
             config = config,
             transformations = Approximate_Transformations(config=config)
-        ))
+        )
+        try:
+            rclpy.spin(node=main_node)
+        finally:
+            main_node.destroy_node()
+            rclpy.shutdown()
     except (ExternalShutdownException, KeyboardInterrupt) as e:
         print(e)
-
-
+        
 if __name__ == '__main__':
     main()

@@ -31,7 +31,7 @@ Considered coordinate systems:
 - gps: GPS or global or absolute (longitude, latitude)
 - abs_xy: Absolute xy (i.e., the "tangent" plane, oriented by the meridians and parallels)
 
-Various filters are applied to reduce false positives. The chain of filters is illustrated in the following figure (dashed boxes correspond to filters that exist but not applied - human localization is performed only if the transformations are available):
+Various filters are applied to reduce false positives. The chain of filters is illustrated in the following figure (dashed boxes correspond to filters that exist but not applied - human localization is performed approximately if the `tf_tree` is not available):
 
 ![Block diagram](./assets/filtersv2.jpg)
 
@@ -265,8 +265,7 @@ To test with dummy data, run also the following:
 | Configuration Parameter | Explanation | Change? |
 | --- | --- | --- |
 | `debugging` | If True, more log messages will be printed. | ⚠️ |
-| `transforms_available` | The availability of the transformations tree. If False, no coordinate estimations are perforfmed (neither local nor global). | ❌ |
-| `fix_available` | The availability of the global position (gps). | ❌ |
+| `odom_fix_required` | False if fix and/or odometry topics are not available. | ⚠️ |
 | `nav_fix_topic` | Topic name for the global position (NavSatFix). | ✅ |
 | `depth_topic` | Topic name for the depth image (Image). | ✅ |
 | `rgb_topic` | Topic name for the RGB image (Image) - aligned with depth. | ✅ |

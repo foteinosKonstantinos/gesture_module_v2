@@ -107,11 +107,6 @@ class Producer(Node):
 
         self.__rgb_frames = [
             
-            "frames/multi_person.png", # dummy
-            "frames/multi_person.png", # dummy
-            "frames/multi_person.png", # dummy
-            "frames/multi_person.png", # dummy
-            
             "frames/high_Come-to-me_338_color.png",
             "frames/high_Come-to-me_338_color.png",
 
@@ -141,6 +136,10 @@ class Producer(Node):
             "frames/high_Come-to-me_338_color.png",
 
             "frames/multi_person.png", # dummy, low confidence
+            "frames/multi_person.png", # dummy
+            "frames/multi_person.png", # dummy
+            "frames/multi_person.png", # dummy
+            "frames/multi_person.png", # dummy
 
             "frames/high_Come-to-me_338_color.png", # 4+1 successive
             "frames/high_Come-to-me_338_color.png",
@@ -226,6 +225,7 @@ class Producer(Node):
         assert len(self.__depth_frames) == self.__total
 
         self.__x_mm = 0.0
+        self.__y_mm = 0.0
         self.__idx = 0
 
         self.__timer = self.create_timer(1/FPS, self.publish)
@@ -235,7 +235,7 @@ class Producer(Node):
             return
         depth_path = f"{path}/{self.__depth_frames[self.__idx]}"
         color_path = f"{path}/{self.__rgb_frames[self.__idx]}"
-        self.get_logger().info(f"Publishing {color_path} and {depth_path}...")
+        
         # self.__idx = (self.__idx + 1) % self.__total
         self.__idx += 1
 
@@ -250,7 +250,7 @@ class Producer(Node):
         base_to_map.header.frame_id = 'map'
         base_to_map.child_frame_id = 'base_link'
         base_to_map.transform.translation.x = float(self.__x_mm / 1000.0)
-        base_to_map.transform.translation.y = 0.0
+        base_to_map.transform.translation.y = float(self.__y_mm / 1000.0)
         base_to_map.transform.translation.z = 0.0
         base_to_map.transform.rotation.x = float(q[0].item())
         base_to_map.transform.rotation.y = float(q[1].item())
@@ -304,7 +304,7 @@ class Producer(Node):
 
         msg = NavSatFix()
         msg.header.stamp = stamp
-        (msg.longitude, msg.latitude) = abs_xy_to_gps(x=self.__x_mm,y=0)
+        (msg.longitude, msg.latitude) = abs_xy_to_gps(x=self.__x_mm,y=self.__y_mm)
         self.__gps_publisher.publish(msg)
 
         msg = Odometry()
@@ -316,7 +316,10 @@ class Producer(Node):
         msg.pose.pose.orientation.w = q[3].item()
         self.__odo_publisher.publish(msg)
 
+        self.get_logger().info(f"Publishing {color_path} at x={self.__x_mm}, y={self.__y_mm}, vertical orientation")
+
         self.__x_mm += 1000
+        self.__y_mm += 500
 
 
 def main():

@@ -245,14 +245,14 @@ class Approximate_Transformations(Transformations):
         }
 
     @staticmethod
-    def __xy_to_polar(x, y, odometry:Odometry): # apostolakis
+    def __xy_to_dist_ang(x, y, odometry:Odometry): # apostolakis
         '''
         Parameters:
             x:          in mm (w.r.t. to robot frame)
             y:          in mm (w.r.t. to robot frame)
             odometry:   needs the (global) orientation
         Returns:
-            Absolute polar coordinates (in meters and radians)
+            The distance between the robot and the detection (meters) and the absolute angle (radians)
         '''
         x_m = x / 1000
         y_m = y / 1000
@@ -262,21 +262,21 @@ class Approximate_Transformations(Transformations):
         angle_absolute = camera_heading + angle_relative
         distance = math.hypot(x_m, y_m)
         return distance, angle_absolute
-    def __polar_to_gps(self, distance, angle_absolute): # apostolakis
+    def __dist_ang_to_gps(self, distance, angle_absolute, robot_lat, robot_lon): # apostolakis
         '''
         Parameters:
-            distance:       in meters (absolute polar coordinates)
+            distance:       in meters (between robot and )
             angle_absolute: in radians (absolute polar coordinates)
         Returns:
             lat/lon (GPS)    
         '''
         azimuth_deg = math.degrees(angle_absolute)
-        result = Geodesic.WGS84.Direct(self.__init_latitude, self.__init_longitude, azimuth_deg, distance)
+        result = Geodesic.WGS84.Direct(robot_lat, robot_lon, azimuth_deg, distance)
         return result["lat2"], result["lon2"]
-    def base_xyz_to_abs_xyz(self, xyz:tuple[float], stamp, odometry:Odometry) -> tuple[float]:
+    def base_xyz_to_abs_xyz(self, xyz:tuple[float], stamp, odometry:Odometry, robot_gps:NavSatFix) -> tuple[float]:
         '''input/output in mm, z=0'''
-        distance, angle_absolute = self.__xy_to_polar(x=xyz[0], y=xyz[1], odometry=odometry)
-        lat, lon = self.__polar_to_gps(distance=distance, angle_absolute=angle_absolute)
+        distance, angle_absolute = self.__xy_to_dist_ang(x=xyz[0], y=xyz[1], odometry=odometry)
+        lat, lon = self.__dist_ang_to_gps(distance=distance, angle_absolute=angle_absolute, robot_lat=robot_gps.latitude, robot_lon=robot_gps.longitude)
         return *self.gps_to_abs_xy(lat=lat, lon=lon), 0 # in mm
     def abs_xy_to_gps(self, x, y) -> tuple[float]:
         '''
@@ -820,7 +820,7 @@ class Gesture_Commander_Coordinator(Node):
             # Filter: Is the classification confident enough?
             if not self.__classifier.accept(confidence=prediction['confidence'], config=self.config):
                 self.__command_filter.restart()
-                self.warn(f"Low confidence.")
+                self.warn(f"Low confidence ({prediction['confidence']:.2f}).")
                 return
 
             self.__command_filter.register_command(gesture_command=prediction['class'], confidence=prediction['confidence'])
@@ -834,10 +834,9 @@ class Gesture_Commander_Coordinator(Node):
 
             rel_xyz = self.__transformations.uvd_to_rel_xyz(u=argmin_u,v=argmin_v,depth=min_depth,intrinsics=np.asarray(intrinsics.k).reshape((3,3)))
             base_xyz = self.__transformations.rel_xyz_to_base_xyz(xyz=rel_xyz,stamp=color_image.header.stamp)
-            abs_xyz = self.__transformations.base_xyz_to_abs_xyz(xyz=base_xyz,stamp=color_image.header.stamp, odometry=odometry)
+            abs_xyz = self.__transformations.base_xyz_to_abs_xyz(xyz=base_xyz,stamp=color_image.header.stamp, odometry=odometry, robot_gps=global_position)
             gps = self.__transformations.abs_xy_to_gps(x=abs_xyz[0],y=abs_xyz[1]) # lon, lat
-            self.info(f"Detection position: {gps} (GPS) [or ({self.__transformations.gps_to_abs_xy(lat=gps[1],lon=gps[0])}) (xy in mm)]")
-
+            self.info(f"Detection position: {gps} (GPS) [or {self.__transformations.gps_to_abs_xy(lat=gps[1],lon=gps[0])} (xy in mm)]")
             self.__action_caller.trigger_action(gesture_command=prediction['class'], x=abs_xyz[0], y=abs_xyz[1], z=abs_xyz[2], q0=0, q1=0, q2=0, q3=1)
             self.__publisher.publish(String(data=json.dumps({
                 "type": "FeatureCollection",
@@ -886,7 +885,7 @@ def main():
             earth_radius = 6_378_137.0, # in meters
             pose_estimation_threshold = 0.80,
             device = "cuda" if torch.cuda.is_available() else "cpu",
-            classification_threshold = 0.80,
+            classification_threshold = 0.90,
             min_occurrences = 4,
             no_servers = False, # previous NO_UNDERLYING_IMPL, change this to False during integration with UPC
             server_timeout = 1.0,

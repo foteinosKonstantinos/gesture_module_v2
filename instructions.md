@@ -9,6 +9,7 @@ This process should have already been done.
 1. Clone the repository: `git clone https://github.com/foteinosKonstantinos/gesture_module_v2`
 2. Add execution privileges: `chmod +x run_producer.sh setup_venv.sh compile_and_run.sh`
 3. Setup the python virtual environment: `./setup_venv.sh`
+4. Change absolute paths (if needed): weights (lines 908-909 in `classifier.py`, the YOLO pose wrapper downloads the weights automatically), the `executable` property (file `setup.cfg`), which is the path to the python virtual environment, and the `PATH` constant (`producer.py`, line 13).
 
 ## Run the module
 
@@ -20,7 +21,7 @@ The initial configuration of the module uses a dummy producer node to generate s
 
 ## Configure the module
 
-1. **Classification model:** The gesture recognition module supports two classifiers: EfficientNet-B0 and YOLO26m-class, pretrained on the FR-GESTURE (extended with an additional Stop class). To choose between the two, change lines 909 and 910 (`classifier=`, comment out the one model that you don't want to use and uncomment the other assignment):
+1. **Classification model:** The gesture recognition module (`classifier.py`) supports two classifiers: EfficientNet-B0 and YOLO26m-class, pretrained on the FR-GESTURE (extended with an additional Stop class). To choose between the two, change lines 909 and 910 (`classifier=`, comment out the one model that you don't want to use and uncomment the other assignment):
 ```python
 rclpy.spin(node=Gesture_Commander_Coordinator(
    classifier = EfficientNetB0_Wrapper(config=config,path="/home/triffid/hua_ws/gesture_module_v2/gesture_recognition/gesture_recognition/efficientnetb0_color_pretrained_ext.pt"),
@@ -32,7 +33,7 @@ rclpy.spin(node=Gesture_Commander_Coordinator(
     transformations = Approximate_Transformations(config=config)
 ))
 ```
-2. **Topic names:** On lines 879-884, change the topic names if necessary (probably, you just need to remove the `_test` postfix):
+2. **Topic names:** On lines 879-884 (on the same script), change the topic names if necessary (probably, you just need to remove the `_test` postfix):
 ```python
 nav_fix_topic = "/fix_test",
 odom_topic = "/dog_odom_test",

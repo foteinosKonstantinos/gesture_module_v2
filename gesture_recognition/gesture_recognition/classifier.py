@@ -31,6 +31,7 @@ import time
 import abc
 import os
 from geographiclib.geodesic import Geodesic
+from rclpy.qos import qos_profile_sensor_data
 
 # Configuration-- -------------------------------------------------------------------------------------------------------------------------------------------------------------
 
@@ -727,7 +728,7 @@ class Gesture_Commander_Coordinator(Node):
                 Subscriber(node=self, msg_type=Image, topic=config.rgb_topic), 
                 Subscriber(node=self, msg_type=Image, topic=config.depth_topic), 
                 Subscriber(node=self, msg_type=CameraInfo, topic=config.camera_info),
-            ] + ([Subscriber(node=self, msg_type=NavSatFix, topic=config.nav_fix_topic),
+            ] + ([Subscriber(node=self, msg_type=NavSatFix, topic=config.nav_fix_topic, qos_profile=qos_profile_sensor_data),
                   Subscriber(node=self, msg_type=Odometry, topic=config.odom_topic)] if config.odom_fix_required else []),
             queue_size=10,
             slop=config.slop

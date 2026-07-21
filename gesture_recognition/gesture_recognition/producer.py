@@ -1,5 +1,6 @@
 import rclpy
 from rclpy.node import Node
+from std_msgs.msg import Float32
 from sensor_msgs.msg import CameraInfo, Image as SensorImage, NavSatFix
 from nav_msgs.msg import Odometry
 from tf2_geometry_msgs import TransformStamped
@@ -58,10 +59,15 @@ class Producer(Node):
             topic="/fix_test",
             qos_profile = 10
         )
-        self.__odo_publisher=self.create_publisher(
-            msg_type=Odometry,
-            topic="/dog_odom_test",
-            qos_profile = 10
+        # self.__odo_publisher=self.create_publisher(
+        #     msg_type=Odometry,
+        #     topic="/dog_odom_test",
+        #     qos_profile = 10
+        # )
+        self.__heading_publisher = self.create_publisher(
+            msg_type=Float32,
+            topic = "/b2/nicla/magnetometer/heading",
+            qos_profile=10
         )
         self.__broadcaster = TransformBroadcaster(self)
 
@@ -307,14 +313,18 @@ class Producer(Node):
         (msg.longitude, msg.latitude) = abs_xy_to_gps(x=self.__x_mm,y=self.__y_mm)
         self.__gps_publisher.publish(msg)
 
-        msg = Odometry()
-        q = euler_to_quaternion(roll=0,pitch=0,yaw=np.pi/2)
-        msg.header.stamp = stamp
-        msg.pose.pose.orientation.x = q[0].item()
-        msg.pose.pose.orientation.y = q[1].item()
-        msg.pose.pose.orientation.z = q[2].item()
-        msg.pose.pose.orientation.w = q[3].item()
-        self.__odo_publisher.publish(msg)
+        # msg = Odometry()
+        # q = euler_to_quaternion(roll=0,pitch=0,yaw=np.pi/2)
+        # msg.header.stamp = stamp
+        # msg.pose.pose.orientation.x = q[0].item()
+        # msg.pose.pose.orientation.y = q[1].item()
+        # msg.pose.pose.orientation.z = q[2].item()
+        # msg.pose.pose.orientation.w = q[3].item()
+        # self.__odo_publisher.publish(msg)
+
+        msg = Float32()
+        msg.data = 254.49954223632812 # degrees
+        self.__heading_publisher.publish(msg)
 
         self.get_logger().info(f"Publishing {color_path} at x={self.__x_mm}, y={self.__y_mm}, vertical orientation")
 

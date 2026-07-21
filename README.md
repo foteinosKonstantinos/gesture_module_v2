@@ -1,5 +1,7 @@
 ### Gesture Recognition Module (T4.3)
 
+TODO: "/b2/nicla/magnetometer/heading" of type sensor_msgs/msg/Float32
+
 **Harokopio University of Athens, Department of Informatics and Telematics**
 
 **HUA Computer Vision Group**
@@ -47,10 +49,11 @@ Various filters are applied to reduce false positives. The chain of filters is i
 | /camera_front_435i/realsense_front_435i/depth/image_rect_raw | Image | Input | 16UC1 in mm (H x W x 2) aligned to the RGB |
 | /camera_front_435i/realsense_front_435i/color/camera_info | CameraInfo | Input | - |
 | /fix | NavSatFix | Input | - |
+<!-- /dog_odom | Odometry | Input | Orientation should be expresses wr.t. to a global coordinate system (the "standard" xy plane aligned to parallels and meridians) | -->
+| /b2/nicla/magnetometer/heading | Float32 | Input | Global UGV orientation in degrees |
 | /gesture_command | String | Output | Stringified GeoJSON, see below |
-| /dog_odom | Odometry | Input | Orientation should be expresses wr.t. to a global coordinate system (the "standard" xy plane aligned to parallels and meridians) |
 
-The exact message format has as follows:
+The exact output message format has as follows:
 
 ```json
 {
@@ -248,6 +251,16 @@ chmod +x compile_and_run.sh setup_venv.sh run_producer.sh
 ./setup_venv.sh
 ```
 
+Modify the `executable` property in `gesture_recognition/setup.cfg`:
+```ini
+[build_scripts]
+executable=<path to venv>/gesture_commander_venv/bin/python3
+[develop]
+script_dir=$base/lib/gesture_recognition
+[install]
+install_scripts=$base/lib/gesture_recognition
+```
+
 The following command automatically re-compiles and launches the classification (main) node:
 
 ```bash
@@ -265,8 +278,9 @@ To test with dummy data, run also the following:
 | Configuration Parameter | Explanation | Change? |
 | --- | --- | --- |
 | `debugging` | If True, more log messages will be printed. | ⚠️ |
-| `odom_fix_required` | False if fix and/or odometry topics are not available. | ⚠️ |
+| `heading_fix_required` | False if fix and/or heading topics are not available. | ⚠️ |
 | `nav_fix_topic` | Topic name for the global position (NavSatFix). | ✅ |
+| `heading_topic` | Topic name for the heading, i.e. the absolute orientation (Float32). | ✅ |
 | `depth_topic` | Topic name for the depth image (Image). | ✅ |
 | `rgb_topic` | Topic name for the RGB image (Image) - aligned with depth. | ✅ |
 | `camera_info` | Topic name for the camera intrinsics (CameraInfo). | ✅ |

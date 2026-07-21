@@ -10,7 +10,7 @@ import rclpy.duration
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 from rclpy.action import ActionClient
-from std_msgs.msg import String
+from std_msgs.msg import String, Float32
 from sensor_msgs.msg import Image, CameraInfo, NavSatFix
 import tf2_ros
 from tf2_geometry_msgs import PointStamped
@@ -38,9 +38,9 @@ from rclpy.qos import qos_profile_sensor_data
 class Configuration:
     def __init__(self,
             debugging:bool,
-            odom_fix_required:bool,
+            heading_fix_required:bool,
             nav_fix_topic:str,
-            odom_topic:str,
+            heading_topic:str,
             depth_topic:str,
             rgb_topic:str,
             camera_info:str,
@@ -68,9 +68,9 @@ class Configuration:
             min_sec_between_commands:float
             ):
         self.debugging = debugging
-        self.odom_fix_required = odom_fix_required
+        self.heading_fix_required = heading_fix_required
         self.nav_fix_topic = nav_fix_topic
-        self.odom_topic = odom_topic
+        self.heading_topic = heading_topic
         self.depth_topic = depth_topic
         self.rgb_topic = rgb_topic
         self.camera_info = camera_info
@@ -246,19 +246,19 @@ class Approximate_Transformations(Transformations):
         }
 
     @staticmethod
-    def __xy_to_dist_ang(x, y, odometry:Odometry): # apostolakis
+    def __xy_to_dist_ang(x, y, camera_heading:float): #odometry:Odometry): # apostolakis
         '''
         Parameters:
             x:          in mm (w.r.t. to robot frame)
             y:          in mm (w.r.t. to robot frame)
-            odometry:   needs the (global) orientation
+            heading:    needs the (global) orientation in radians
         Returns:
             The distance between the robot and the detection (meters) and the absolute angle (radians)
         '''
         x_m = x / 1000
         y_m = y / 1000
-        quaternion = odometry.pose.pose.orientation
-        camera_heading = math.pi / 2 - Approximate_Transformations.__quaternion_to_rpy(quaternion.x, quaternion.y, quaternion.z, quaternion.w)["yaw"]
+        # quaternion = odometry.pose.pose.orientation
+        # camera_heading = math.pi / 2 - Approximate_Transformations.__quaternion_to_rpy(quaternion.x, quaternion.y, quaternion.z, quaternion.w)["yaw"]
         angle_relative = math.atan2(x_m, y_m)
         angle_absolute = camera_heading + angle_relative
         distance = math.hypot(x_m, y_m)
@@ -274,9 +274,9 @@ class Approximate_Transformations(Transformations):
         azimuth_deg = math.degrees(angle_absolute)
         result = Geodesic.WGS84.Direct(robot_lat, robot_lon, azimuth_deg, distance)
         return result["lat2"], result["lon2"]
-    def base_xyz_to_abs_xyz(self, xyz:tuple[float], stamp, odometry:Odometry, robot_gps:NavSatFix) -> tuple[float]:
-        '''input/output in mm, z=0'''
-        distance, angle_absolute = self.__xy_to_dist_ang(x=xyz[0], y=xyz[1], odometry=odometry)
+    def base_xyz_to_abs_xyz(self, xyz:tuple[float], stamp, camera_heading:float, robot_gps:NavSatFix) -> tuple[float]:
+        '''input/output in mm, z=0, camera_heading in radians'''
+        distance, angle_absolute = self.__xy_to_dist_ang(x=xyz[0], y=xyz[1], camera_heading=camera_heading)
         lat, lon = self.__dist_ang_to_gps(distance=distance, angle_absolute=angle_absolute, robot_lat=robot_gps.latitude, robot_lon=robot_gps.longitude)
         return *self.gps_to_abs_xy(lat=lat, lon=lon), 0 # in mm
     def abs_xy_to_gps(self, x, y) -> tuple[float]:
@@ -729,7 +729,8 @@ class Gesture_Commander_Coordinator(Node):
                 Subscriber(node=self, msg_type=Image, topic=config.depth_topic), 
                 Subscriber(node=self, msg_type=CameraInfo, topic=config.camera_info),
             ] + ([Subscriber(node=self, msg_type=NavSatFix, topic=config.nav_fix_topic, qos_profile=qos_profile_sensor_data),
-                  Subscriber(node=self, msg_type=Odometry, topic=config.odom_topic)] if config.odom_fix_required else []),
+                #   Subscriber(node=self, msg_type=Odometry, topic=config.odom_topic)] if config.odom_fix_required else []),
+                  Subscriber(node=self, msg_type=Float32, topic=config.heading_topic)] if config.heading_fix_required else []),
             queue_size=10,
             slop=config.slop
         )
@@ -762,14 +763,14 @@ class Gesture_Commander_Coordinator(Node):
     def warn(self, text:str) -> None:
         self.get_logger().warning(f"[{self.__log_counter}] {text}")
 
-    def __main_callback(self, color_image:Image, depth_image:Image, intrinsics:CameraInfo, global_position:NavSatFix|None=None, odometry:Odometry|None=None):
+    def __main_callback(self, color_image:Image, depth_image:Image, intrinsics:CameraInfo, global_position:NavSatFix|None=None, heading:Float32|None=None):
         '''
         Parameters:
             color_image:    8-bit RGB image (H x W x 3)
             depth_image:    16UC1 in mm depth map (H x W x 2) of the same dimensions and aligned to the color_image
             intrinsics:     Camera intrinsics (the code uses only K matrix)
             global_position:Longitude/latitude (degrees)
-            odomometry:     The code needs the "absolute" orientation (w.r.t. to the "standard" xy plane), as described in (*)
+            heading:        The code needs the "absolute" orientation (w.r.t. to the "standard" xy plane), as described in (*)
         Publishes:
             See README
         '''
@@ -835,7 +836,8 @@ class Gesture_Commander_Coordinator(Node):
 
             rel_xyz = self.__transformations.uvd_to_rel_xyz(u=argmin_u,v=argmin_v,depth=min_depth,intrinsics=np.asarray(intrinsics.k).reshape((3,3)))
             base_xyz = self.__transformations.rel_xyz_to_base_xyz(xyz=rel_xyz,stamp=color_image.header.stamp)
-            abs_xyz = self.__transformations.base_xyz_to_abs_xyz(xyz=base_xyz,stamp=color_image.header.stamp, odometry=odometry, robot_gps=global_position)
+            # convert heading from degrees to radians
+            abs_xyz = self.__transformations.base_xyz_to_abs_xyz(xyz=base_xyz,stamp=color_image.header.stamp, camera_heading=(heading.data*math.pi/180), robot_gps=global_position)
             gps = self.__transformations.abs_xy_to_gps(x=abs_xyz[0],y=abs_xyz[1]) # lon, lat
             self.info(f"Detection position: {gps} (GPS) [or {self.__transformations.gps_to_abs_xy(lat=gps[1],lon=gps[0])} (xy in mm)]")
             self.__action_caller.trigger_action(gesture_command=prediction['class'], x=abs_xyz[0], y=abs_xyz[1], z=abs_xyz[2], q0=0, q1=0, q2=0, q3=1)
@@ -875,9 +877,10 @@ def main():
     try:
         config = Configuration(
             debugging = True,
-            odom_fix_required = True,
+            heading_fix_required = True,
             nav_fix_topic = "/fix_test",
-            odom_topic = "/dog_odom_test",
+            heading_topic = "/b2/nicla/magnetometer/heading",
+            # odom_topic = "/dog_odom_test",
             depth_topic = "/b2/camera_front_435i/realsense_front_435i/depth/image_rect_raw_test",
             rgb_topic = "/b2/camera_front_435i/realsense_front_435i/color/image_raw_test",
             camera_info = "/b2/camera_front_435i/realsense_front_435i/color/camera_info_test",

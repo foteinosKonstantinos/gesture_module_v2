@@ -732,7 +732,8 @@ class Gesture_Commander_Coordinator(Node):
                 #   Subscriber(node=self, msg_type=Odometry, topic=config.odom_topic)] if config.odom_fix_required else []),
                   Subscriber(node=self, msg_type=Float32, topic=config.heading_topic)] if config.heading_fix_required else []),
             queue_size=10,
-            slop=config.slop
+            slop=config.slop,
+            allow_headerless=True
         )
         self.__time_synchronizer.registerCallback(self.__main_callback)
         self.__publisher=self.create_publisher(

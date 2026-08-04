@@ -49,9 +49,9 @@ Various filters are applied to reduce false positives. The chain of filters is i
 | /camera_front_435i/realsense_front_435i/depth/image_rect_raw | Image | Input | 16UC1 in mm (H x W x 2) aligned to the RGB |
 | /camera_front_435i/realsense_front_435i/color/camera_info | CameraInfo | Input | - |
 | /fix | NavSatFix | Input | - |
-<!-- /dog_odom | Odometry | Input | Orientation should be expresses wr.t. to a global coordinate system (the "standard" xy plane aligned to parallels and meridians) | -->
 | /b2/nicla/magnetometer/heading | Float32 | Input | Global UGV orientation in degrees |
 | /gesture_command | String | Output | Stringified GeoJSON, see below |
+<!-- /dog_odom | Odometry | Input | Orientation should be expresses wr.t. to a global coordinate system (the "standard" xy plane aligned to parallels and meridians) | -->
 
 The exact output message format has as follows:
 

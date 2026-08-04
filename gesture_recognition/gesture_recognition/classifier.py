@@ -827,7 +827,7 @@ class Gesture_Commander_Coordinator(Node):
                 return
 
             self.__command_filter.register_command(gesture_command=prediction['class'], confidence=prediction['confidence'])
-            # Filter: Successive ocurrences (given filter 4, of high confidence!)
+            # 2x Filter: Successive ocurrences (given filter 4, of high confidence!) AND time between triggers
             if not self.__command_filter.accept():
                 # Do not restart!
                 self.warn(f"Ignoring {prediction['class']}")
@@ -911,7 +911,7 @@ def main():
         rclpy.init()
         rclpy.spin(node=Gesture_Commander_Coordinator(
             classifier = EfficientNetB0_Wrapper(config=config,path="/home/triffid/hua_ws/gesture_module_v2/gesture_recognition/gesture_recognition/efficientnetb0_color_pretrained_ext.pt"),
-            # classifier = YOLO_Classification_Wrapper(config=config,path="/home/triffid/hua_ws/gesture_module_v2/gesture_recognition/gesture_recognition/yolo26m-cls-FR-GESTURE.pt"),
+            # classifier = YOLO_Classification_Wrapper(config=config,path="/home/triffid/hua_ws/gesture_module_v2/gesture_recognition/gesture_recognition/yolo26s-cls-FR-GESTURE.pt"),
             pose_estimator = YOLO_Pose_Wrapper(model="yolo26n-pose.pt", config=config), # DO NOT change the "model" parameter
             perceptron = DEMO_Perceptron(),
             # perceptron = RealSense_Perceptron(),

@@ -9,6 +9,7 @@ from PIL import Image as PILImage
 import numpy as np
 from rclpy.executors import ExternalShutdownException
 import math
+import abc
 
 EARTH_RADIUS = 6378137.0 # in meters
 PATH = "/home/triffid/hua_ws/gesture_module_v2"
@@ -34,9 +35,225 @@ def abs_xy_to_gps(x, y) -> tuple[float]:
     lon = ((x/1000) / (EARTH_RADIUS * math.cos(math.radians(0)))) * (180.0 / math.pi)
     return float(lon), float(lat)
 
+
+class Test(abc.ABC):
+    @abc.abstractmethod
+    def get_rgb_frame(self, timestep:int) -> list[str]:pass     # timestep >= 0, relative path
+    @abc.abstractmethod
+    def get_depth_frame(self, timestep:int) -> list[str]:pass   # timestep >= 0, relative path
+    @abc.abstractmethod
+    def get_xy(self, timestep:int) -> tuple[int]:pass           # in mm
+    @abc.abstractmethod
+    def get_orientation(self, timestep:int) -> float:pass       # degrees
+    @abc.abstractmethod
+    def finished(self, timestep:int) -> bool:pass
+
+    def generate_full_trajectory(self, max_timestep=math.inf) -> dict[list]:
+        timestep = 0
+        trajectory = {
+            "rgb_frames": [],
+            "depth_frames": [],
+            "xy (mm)": [],
+            "omega (deg)": []
+        }
+        while not self.finished(timestep) and timestep<=max_timestep:
+            trajectory["rgb_frames"].append(self.get_rgb_frame(timestep))
+            trajectory["depth_frames"].append(self.get_depth_frame(timestep))
+            trajectory["xy (mm)"].append(self.get_xy(timestep))
+            trajectory["omega (deg)"].append(self.get_orientation(timestep))
+            timestep += 1
+        return trajectory
+
+
+class Filter_Test(Test):
+    def __init__(self):
+        self.__rgb_frames = [
+                    
+                    "frames/high_Come-to-me_338_color.png",
+                    "frames/high_Come-to-me_338_color.png",
+        
+                    "frames/multi_person.png", # dummy
+        
+                    "frames/high_Come-to-me_338_color.png", # 4+1 successive
+                    "frames/high_Come-to-me_338_color.png",
+                    "frames/high_Come-to-me_338_color.png",
+                    "frames/high_Come-to-me_338_color.png",
+                    "frames/high_Come-to-me_338_color.png",
+        
+                    "frames/multi_person.png", # dummy, low confidence
+        
+                    "frames/high_Come-to-me_338_color.png", # 2 successive
+                    "frames/high_Come-to-me_338_color.png",
+        
+                    "frames/multi_person.png", # dummy, low confidence
+        
+                    "frames/high_Come-to-me_338_color.png", # 1 single
+        
+                    "frames/multi_person.png", # dummy, low confidence
+        
+                    "frames/high_Come-to-me_338_color.png", # 4+1 successive
+                    "frames/high_Come-to-me_338_color.png",
+                    "frames/high_Come-to-me_338_color.png",
+                    "frames/high_Come-to-me_338_color.png",
+                    "frames/high_Come-to-me_338_color.png",
+        
+                    "frames/multi_person.png", # dummy, low confidence
+                    "frames/multi_person.png", # dummy
+                    "frames/multi_person.png", # dummy
+                    "frames/multi_person.png", # dummy
+                    "frames/multi_person.png", # dummy
+        
+                    "frames/high_Come-to-me_338_color.png", # 4+1 successive
+                    "frames/high_Come-to-me_338_color.png",
+                    "frames/high_Come-to-me_338_color.png",
+                    "frames/high_Come-to-me_338_color.png",
+                    "frames/high_Come-to-me_338_color.png",
+        
+                    "frames/high_Emergency-situation_341_color.png", # 4 + 1
+                    "frames/high_Emergency-situation_341_color.png",
+                    "frames/high_Emergency-situation_341_color.png",
+                    "frames/high_Emergency-situation_341_color.png",
+                    "frames/high_Emergency-situation_341_color.png",
+        
+                    "frames/multi_person.png", # dummy, low confidence
+        
+                    "frames/high_Emergency-situation_341_color.png",
+        
+                    "frames/high_Fetch-a-gas-mask_337_color.png",
+                    "frames/high_Fetch-a-gas-mask_337_color.png",
+                    "frames/high_Fetch-a-gas-mask_337_color.png",
+                    "frames/high_Fetch-a-gas-mask_337_color.png",
+        
+                    "frames/high_Fetch-a-shovel_357_color.png",
+                    "frames/high_Fetch-a-shovel_357_color.png",
+                    "frames/high_Fetch-a-shovel_357_color.png",
+                    "frames/high_Fetch-a-shovel_357_color.png",
+        
+                    "frames/high_Fetch-an-axe_346_color.png",
+                    "frames/high_Fetch-an-axe_346_color.png",
+                    "frames/high_Fetch-an-axe_346_color.png",
+                    "frames/high_Fetch-an-axe_346_color.png",
+        
+                    "frames/high_Freeze_340_color.png",
+                    "frames/high_Freeze_340_color.png",
+                    "frames/high_Freeze_340_color.png",
+                    "frames/high_Freeze_340_color.png",
+                
+                    "frames/high_I-lost-connection_344_color.png",
+                    "frames/high_I-lost-connection_344_color.png",
+                    "frames/high_I-lost-connection_344_color.png",
+                    "frames/high_I-lost-connection_344_color.png",
+        
+                    "frames/high_I-need-help_342_color.png",
+                    "frames/high_I-need-help_342_color.png",
+                    "frames/high_I-need-help_342_color.png",
+                    "frames/high_I-need-help_342_color.png",
+        
+                    "frames/high_Move-away-from-here_348_color.png",
+                    "frames/high_Move-away-from-here_348_color.png",
+                    "frames/high_Move-away-from-here_348_color.png",
+                    "frames/high_Move-away-from-here_348_color.png",
+        
+                    "frames/high_Ok-to-go_347_color.png",
+                    "frames/high_Ok-to-go_347_color.png",
+                    "frames/high_Ok-to-go_347_color.png",
+                    "frames/high_Ok-to-go_347_color.png",
+        
+                    "frames/high_Operation-finished_339_color.png",
+                    "frames/high_Operation-finished_339_color.png",
+                    "frames/high_Operation-finished_339_color.png",
+                    "frames/high_Operation-finished_339_color.png",
+        
+                    "frames/STOP_high_16_color.png",
+                    "frames/STOP_high_16_color.png",
+                    "frames/STOP_high_16_color.png",
+                    "frames/STOP_high_16_color.png",
+                    "frames/STOP_high_16_color.png",
+                    "frames/STOP_high_16_color.png",
+                    "frames/STOP_high_16_color.png",
+                    "frames/STOP_high_16_color.png",
+                    "frames/STOP_high_16_color.png",
+                    "frames/STOP_high_16_color.png",
+                    "frames/STOP_high_16_color.png",
+                    "frames/STOP_high_16_color.png",
+                    "frames/STOP_high_16_color.png",
+                    "frames/STOP_high_16_color.png",
+        
+                ]
+        
+        self.__depth_frames = ["frames/high_Come-to-me_338_depth.png"] * len(self.__rgb_frames)
+    def get_rgb_frame(self, timestep:int):
+        return self.__rgb_frames[timestep]
+    def get_depth_frame(self, timestep:int):
+        return self.__depth_frames[timestep]
+    def get_xy(self, timestep):
+        return (0, 0)
+    def get_orientation(self, timestep):
+        return 0
+    def finished(self, timestep):
+        return timestep >= len(self.__rgb_frames)
+
+class Classification_Test(Test):
+    def __init__(self):
+        self.__rgb_frames = ['frames/high_Move-away-from-here_348_color.png', 'frames/high_Evacuate-the-area_343_color.png', 
+                             'frames/high_Ok-to-go_347_color.png', 'frames/high_Emergency-situation_341_color.png', 
+                             'frames/high_Freeze_340_color.png', 'frames/high_Operation-finished_339_color.png', 
+                             'frames/high_I-lost-connection_344_color.png', 'frames/high_I-need-help_342_color.png', 
+                             'frames/high_Come-to-me_338_color.png', 'frames/high_Fetch-an-axe_346_color.png', 
+                             'frames/high_Fetch-a-gas-mask_337_color.png', 'frames/STOP_high_16_color.png', 
+                             'frames/high_Fetch-a-shovel_357_color.png', 'frames/multi_person.png'] # the last image is negative
+        self.__depth_frames = ['frames/high_Move-away-from-here_348_depth.png', 'frames/high_Evacuate-the-area_343_depth.png', 
+                             'frames/high_Ok-to-go_347_depth.png', 'frames/high_Emergency-situation_341_depth.png', 
+                             'frames/high_Freeze_340_depth.png', 'frames/high_Operation-finished_339_depth.png', 
+                             'frames/high_I-lost-connection_344_depth.png', 'frames/high_I-need-help_342_depth.png', 
+                             'frames/high_Come-to-me_338_depth.png', 'frames/high_Fetch-an-axe_346_depth.png', 
+                             'frames/high_Fetch-a-gas-mask_337_depth.png', 'frames/STOP_high_16_depth.png', 
+                             'frames/high_Fetch-a-shovel_357_depth.png', 'frames/high_Fetch-a-shovel_357_depth.png'] # the last depth map is dummy
+    def get_rgb_frame(self, timestep):
+        return self.__rgb_frames[timestep]
+    def get_depth_frame(self, timestep):
+        return self.__depth_frames[timestep]
+    def get_xy(self, timestep):
+        return (0, 0)
+    def get_orientation(self, timestep):
+        return 0
+    def finished(self, timestep):
+        return timestep >= len(self.__rgb_frames)
+
+class Localization_Parabola_Test(Test):
+    def __init__(self):
+        self.__rgb_frame = 'frames/high_Freeze_340_color.png'
+        self.__depth_frame = 'frames/high_Freeze_340_depth.png'
+    def get_rgb_frame(self, timestep):
+        return self.__rgb_frame
+    def get_depth_frame(self, timestep):
+        return self.__depth_frame
+    def get_xy(self, timestep):
+        return (timestep * 1000, timestep**2 * 1000) # mm
+    def get_orientation(self, timestep):
+        return 0
+    def finished(self, timestep):
+        return False
+
+class Localization_Line_Test(Test):
+    def __init__(self):
+        self.__rgb_frame = 'frames/high_Freeze_340_color.png'
+        self.__depth_frame = 'frames/high_Freeze_340_depth.png'
+    def get_rgb_frame(self, timestep):
+        return self.__rgb_frame
+    def get_depth_frame(self, timestep):
+        return self.__depth_frame
+    def get_xy(self, timestep):
+        return (timestep * 1000, timestep * 1000) # mm
+    def get_orientation(self, timestep):
+        return 135 # degress, perpedincular to the line
+    def finished(self, timestep):
+        return False
+
+
 class Producer(Node):
 
-    def __init__(self):
+    def __init__(self, test_scenario:Test, fps:float=FPS):
         super().__init__("producer_node")
         
         self.__color_publisher=self.create_publisher(
@@ -66,187 +283,28 @@ class Producer(Node):
         # )
         self.__heading_publisher = self.create_publisher(
             msg_type=Float32,
-            topic = "/b2/nicla/magnetometer/heading",
+            topic = "/b2/nicla/magnetometer/heading_test",
             qos_profile=10
         )
         self.__broadcaster = TransformBroadcaster(self)
 
-        # self.__rgb_frames = [
-        #     "frames/high_Come-to-me_2_color.png",
-        #     "frames/high_Come-to-me_98_color.png",
-        #     "frames/high_Come-to-me_1214_color.png",
-        #     "frames/high_Emergency-situation_101_color.png",
-        #     "frames/high_Evacuate-the-area_175_color.png",
-        #     "frames/high_Fetch-a-gas-mask_49_color.png",
-        #     "frames/high_Fetch-a-gas-mask_181_color.png",
-        #     "frames/high_Fetch-a-shovel_33_color.png",
-        #     "frames/high_Freeze_16_color.png",
-        #     "frames/high_Freeze_40_color.png",
-        #     "frames/high_Freeze_184_color.png",
-        #     "frames/high_Ok-to-go_203_color.png",
-        #     "frames/high_Ok-to-go_263_color.png",
-        #     "frames/STOP_high_16_color.png",
-        #     "frames/STOP_high_90_color.png",   
-        #     "frames/multi_person.png",
-        #     "frames/no_person.png",
-        # ]
+        self.__scenario = test_scenario
 
-        # self.__depth_frames = [
-        #     "frames/high_Come-to-me_2_depth.png",
-        #     "frames/high_Come-to-me_98_depth.png",
-        #     "frames/high_Come-to-me_1214_depth.png",
-        #     "frames/high_Emergency-situation_101_depth.png",
-        #     "frames/high_Evacuate-the-area_175_depth.png",
-        #     "frames/high_Fetch-a-gas-mask_49_depth.png",
-        #     "frames/high_Fetch-a-gas-mask_181_depth.png",
-        #     "frames/high_Fetch-a-shovel_33_depth.png",
-        #     "frames/high_Freeze_16_depth.png",
-        #     "frames/high_Freeze_40_depth.png",
-        #     "frames/high_Freeze_184_depth.png",
-        #     "frames/high_Ok-to-go_203_depth.png",
-        #     "frames/high_Ok-to-go_263_depth.png",
-        #     "frames/STOP_high_16_depth.png",
-        #     "frames/STOP_high_90_depth.png",
-        #     "frames/high_Ok-to-go_263_depth.png",   # dummy
-        #     "frames/high_Ok-to-go_263_depth.png",   # dummy
-        # ]
-
-        self.__rgb_frames = [
-            
-            "frames/high_Come-to-me_338_color.png",
-            "frames/high_Come-to-me_338_color.png",
-
-            "frames/multi_person.png", # dummy
-
-            "frames/high_Come-to-me_338_color.png", # 4+1 successive
-            "frames/high_Come-to-me_338_color.png",
-            "frames/high_Come-to-me_338_color.png",
-            "frames/high_Come-to-me_338_color.png",
-            "frames/high_Come-to-me_338_color.png",
-
-            "frames/multi_person.png", # dummy, low confidence
-
-            "frames/high_Come-to-me_338_color.png", # 2 successive
-            "frames/high_Come-to-me_338_color.png",
-
-            "frames/multi_person.png", # dummy, low confidence
-
-            "frames/high_Come-to-me_338_color.png", # 1 single
-
-            "frames/multi_person.png", # dummy, low confidence
-
-            "frames/high_Come-to-me_338_color.png", # 4+1 successive
-            "frames/high_Come-to-me_338_color.png",
-            "frames/high_Come-to-me_338_color.png",
-            "frames/high_Come-to-me_338_color.png",
-            "frames/high_Come-to-me_338_color.png",
-
-            "frames/multi_person.png", # dummy, low confidence
-            "frames/multi_person.png", # dummy
-            "frames/multi_person.png", # dummy
-            "frames/multi_person.png", # dummy
-            "frames/multi_person.png", # dummy
-
-            "frames/high_Come-to-me_338_color.png", # 4+1 successive
-            "frames/high_Come-to-me_338_color.png",
-            "frames/high_Come-to-me_338_color.png",
-            "frames/high_Come-to-me_338_color.png",
-            "frames/high_Come-to-me_338_color.png",
-
-            "frames/high_Emergency-situation_341_color.png", # 4 + 1
-            "frames/high_Emergency-situation_341_color.png",
-            "frames/high_Emergency-situation_341_color.png",
-            "frames/high_Emergency-situation_341_color.png",
-            "frames/high_Emergency-situation_341_color.png",
-
-            "frames/multi_person.png", # dummy, low confidence
-
-            "frames/high_Emergency-situation_341_color.png",
-
-            "frames/high_Fetch-a-gas-mask_337_color.png",
-            "frames/high_Fetch-a-gas-mask_337_color.png",
-            "frames/high_Fetch-a-gas-mask_337_color.png",
-            "frames/high_Fetch-a-gas-mask_337_color.png",
-
-            "frames/high_Fetch-a-shovel_357_color.png",
-            "frames/high_Fetch-a-shovel_357_color.png",
-            "frames/high_Fetch-a-shovel_357_color.png",
-            "frames/high_Fetch-a-shovel_357_color.png",
-
-            "frames/high_Fetch-an-axe_346_color.png",
-            "frames/high_Fetch-an-axe_346_color.png",
-            "frames/high_Fetch-an-axe_346_color.png",
-            "frames/high_Fetch-an-axe_346_color.png",
-
-            "frames/high_Freeze_340_color.png",
-            "frames/high_Freeze_340_color.png",
-            "frames/high_Freeze_340_color.png",
-            "frames/high_Freeze_340_color.png",
-        
-            "frames/high_I-lost-connection_344_color.png",
-            "frames/high_I-lost-connection_344_color.png",
-            "frames/high_I-lost-connection_344_color.png",
-            "frames/high_I-lost-connection_344_color.png",
-
-            "frames/high_I-need-help_342_color.png",
-            "frames/high_I-need-help_342_color.png",
-            "frames/high_I-need-help_342_color.png",
-            "frames/high_I-need-help_342_color.png",
-
-            "frames/high_Move-away-from-here_348_color.png",
-            "frames/high_Move-away-from-here_348_color.png",
-            "frames/high_Move-away-from-here_348_color.png",
-            "frames/high_Move-away-from-here_348_color.png",
-
-            "frames/high_Ok-to-go_347_color.png",
-            "frames/high_Ok-to-go_347_color.png",
-            "frames/high_Ok-to-go_347_color.png",
-            "frames/high_Ok-to-go_347_color.png",
-
-            "frames/high_Operation-finished_339_color.png",
-            "frames/high_Operation-finished_339_color.png",
-            "frames/high_Operation-finished_339_color.png",
-            "frames/high_Operation-finished_339_color.png",
-
-            "frames/STOP_high_16_color.png",
-            "frames/STOP_high_16_color.png",
-            "frames/STOP_high_16_color.png",
-            "frames/STOP_high_16_color.png",
-            "frames/STOP_high_16_color.png",
-            "frames/STOP_high_16_color.png",
-            "frames/STOP_high_16_color.png",
-            "frames/STOP_high_16_color.png",
-            "frames/STOP_high_16_color.png",
-            "frames/STOP_high_16_color.png",
-            "frames/STOP_high_16_color.png",
-            "frames/STOP_high_16_color.png",
-            "frames/STOP_high_16_color.png",
-            "frames/STOP_high_16_color.png",
-
-        ]
-
-        self.__depth_frames = ["frames/high_Come-to-me_338_depth.png"] * len(self.__rgb_frames)
-
-        self.__total = len(self.__rgb_frames)
-        assert len(self.__depth_frames) == self.__total
-
-        self.__x_mm = 0.0
-        self.__y_mm = 0.0
-        self.__idx = 0
-
-        self.__timer = self.create_timer(1/FPS, self.publish)
+        self.__timestep = 0
+        self.__timer = self.create_timer(1/fps, self.publish)
 
     def publish(self, path=PATH):
-        if self.__idx >= len(self.__rgb_frames):
+        if self.__scenario.finished(self.__timestep):
+            self.get_logger().info("\033[1;102mTEST FINISHED\033[0;0m")
             return
-        depth_path = f"{path}/{self.__depth_frames[self.__idx]}"
-        color_path = f"{path}/{self.__rgb_frames[self.__idx]}"
-        
-        # self.__idx = (self.__idx + 1) % self.__total
-        self.__idx += 1
 
+        depth_path = f"{path}/{self.__scenario.get_depth_frame(self.__timestep)}"
         depth = np.asarray(PILImage.open(depth_path),dtype=np.uint16)
+        color_path = f"{path}/{self.__scenario.get_rgb_frame(self.__timestep)}"
         color = np.asarray(PILImage.open(color_path).convert("RGB"))
+
+        x_mm, y_mm = self.__scenario.get_xy(self.__timestep)
+        omega = self.__scenario.get_orientation(self.__timestep)
         
         stamp = self.get_clock().now().to_msg()
 
@@ -255,8 +313,8 @@ class Producer(Node):
         base_to_map.header.stamp = stamp
         base_to_map.header.frame_id = 'map'
         base_to_map.child_frame_id = 'base_link'
-        base_to_map.transform.translation.x = float(self.__x_mm / 1000.0)
-        base_to_map.transform.translation.y = float(self.__y_mm / 1000.0)
+        base_to_map.transform.translation.x = float(x_mm / 1000.0)
+        base_to_map.transform.translation.y = float(y_mm / 1000.0)
         base_to_map.transform.translation.z = 0.0
         base_to_map.transform.rotation.x = float(q[0].item())
         base_to_map.transform.rotation.y = float(q[1].item())
@@ -310,7 +368,7 @@ class Producer(Node):
 
         msg = NavSatFix()
         msg.header.stamp = stamp
-        (msg.longitude, msg.latitude) = abs_xy_to_gps(x=self.__x_mm,y=self.__y_mm)
+        (msg.longitude, msg.latitude) = abs_xy_to_gps(x=x_mm,y=y_mm)
         self.__gps_publisher.publish(msg)
 
         # msg = Odometry()
@@ -323,19 +381,20 @@ class Producer(Node):
         # self.__odo_publisher.publish(msg)
 
         msg = Float32()
-        msg.data = 254.49954223632812 # degrees
+        msg.data = omega # degrees
         self.__heading_publisher.publish(msg)
 
-        self.get_logger().info(f"Publishing {color_path} at x={self.__x_mm}, y={self.__y_mm}, vertical orientation")
+        self.get_logger().info(f"Publishing {color_path} at x={x_mm}, y={y_mm}, omega={omega}")
 
-        self.__x_mm += 1000
-        self.__y_mm += 500
+        self.__timestep += 1
 
 
 def main():
     try:
+        test = Localization_Line_Test()
+        print(test.generate_full_trajectory(max_timestep=100))
         rclpy.init()
-        rclpy.spin(node=Producer())
+        rclpy.spin(node=Producer(test_scenario=test,fps=FPS))
     except (ExternalShutdownException, KeyboardInterrupt) as e:
         print(e)
 

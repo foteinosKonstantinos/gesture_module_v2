@@ -1,7 +1,5 @@
 ### Gesture Recognition Module (T4.3)
 
-TODO: "/b2/nicla/magnetometer/heading" of type sensor_msgs/msg/Float32
-
 **Harokopio University of Athens, Department of Informatics and Telematics**
 
 **HUA Computer Vision Group**

@@ -579,9 +579,9 @@ class Action_Caller:
                 self.__node.error(f"SERVER UNAVAILABLE (timeout = {self.config.server_timeout:0.2f})")
             else:
                 server.send_goal_async(msg)
-                self.__node.info("\033[1;102mMESSAGE WAS SENT\033[0;0m")
+                # self.__node.info("\033[1;102mMESSAGE WAS SENT\033[0;0m")
     def trigger_action(self, gesture_command:str, **args): # args in mm        
-        # https://asantamarianavarro.gitlab.io/code/projects/triffid/aurops/sections/triffid/ugv_planning.html#gesture-commander
+        # https://asantamarianavarro.gitlab.io/code/projects/triffid/aurops/sections/triffid/ugv_planning.html
         if gesture_command == "come-to-me":
             msg = NavigateTo.Goal()
             msg.goal_pose = Pose() # map frame
@@ -777,6 +777,9 @@ class Gesture_Commander_Coordinator(Node):
         '''
 
         try:
+
+            if self.config.debugging:
+                detection_trajectory = []
         
             self.__transformations.register_initial_gps(global_position)
 
@@ -827,7 +830,7 @@ class Gesture_Commander_Coordinator(Node):
                 return
 
             self.__command_filter.register_command(gesture_command=prediction['class'], confidence=prediction['confidence'])
-            # 2x Filter: Successive ocurrences (given filter 4, of high confidence!) AND time between triggers
+            # 2x Filter: Successive ocurrences (given filter 4, the respective predictions are higly confident) AND time between triggers
             if not self.__command_filter.accept():
                 # Do not restart!
                 self.warn(f"Ignoring {prediction['class']}")
@@ -840,7 +843,13 @@ class Gesture_Commander_Coordinator(Node):
             # convert heading from degrees to radians
             abs_xyz = self.__transformations.base_xyz_to_abs_xyz(xyz=base_xyz,stamp=color_image.header.stamp, camera_heading=(heading.data*math.pi/180), robot_gps=global_position)
             gps = self.__transformations.abs_xy_to_gps(x=abs_xyz[0],y=abs_xyz[1]) # lon, lat
+
             self.info(f"Detection position: {gps} (GPS) [or {self.__transformations.gps_to_abs_xy(lat=gps[1],lon=gps[0])} (xy in mm)]")
+            if self.config.debugging:
+                detection_trajectory.append((abs_xyz[0], abs_xyz[1]))
+                if self.__detection_id % 10 == 0:
+                    print(detection_trajectory)
+
             self.__action_caller.trigger_action(gesture_command=prediction['class'], x=abs_xyz[0], y=abs_xyz[1], z=abs_xyz[2], q0=0, q1=0, q2=0, q3=1)
             self.__publisher.publish(String(data=json.dumps({
                 "type": "FeatureCollection",
@@ -880,7 +889,7 @@ def main():
             debugging = True,
             heading_fix_required = True,
             nav_fix_topic = "/fix_test",
-            heading_topic = "/b2/nicla/magnetometer/heading",
+            heading_topic = "/b2/nicla/magnetometer/heading_test",
             # odom_topic = "/dog_odom_test",
             depth_topic = "/b2/camera_front_435i/realsense_front_435i/depth/image_rect_raw_test",
             rgb_topic = "/b2/camera_front_435i/realsense_front_435i/color/image_raw_test",
@@ -892,26 +901,27 @@ def main():
             device = "cuda" if torch.cuda.is_available() else "cpu",
             classification_threshold = 0.90,
             min_occurrences = 4,
-            no_servers = False, # previous NO_UNDERLYING_IMPL, change this to False during integration with UPC
+            no_servers = True, # previous NO_UNDERLYING_IMPL, change this to False during integration with UPC
             server_timeout = 1.0,
             slop = 1e-1,
             max_classification_rate = 2, # fps
             depth_max_threshold = 100_000, # mm
             depth_min_threshold = 1_000, # mm
-            trigger_stop = "/b2/local/trigger_stop",
-            trigger_help_request = "/b2/local/trigger_help_request",
-            trigger_return_to_base_fetch = "/b2/local/trigger_return_to_base_fetch",
-            trigger_freeze = "/b2/local/trigger_freeze",
-            trigger_retreat = "/b2/local/trigger_retreat",
-            trigger_emergency = "/b2/global/trigger_emergency",
-            trigger_return_to_base = "/b2/local/trigger_return_to_base",
-            trigger_navigation = "/b2/local/trigger_navigation",
+            # https://asantamarianavarro.gitlab.io/code/projects/triffid/aurops/sections/planning/robal.html
+            trigger_stop = "/b2/local/trigger_stop",                                    # "One-shot: cancels all actions except Emergency, then auto-clears"
+            trigger_help_request = "/b2/local/trigger_help_request",                    # "Navigates to a target pose to provide help (target transform + help type)"
+            trigger_return_to_base_fetch = "/b2/local/trigger_return_to_base_fetch",    # "Goes to base, freezes for object fetch (operator sends unfreeze when done), and returns to the original pose"
+            trigger_freeze = "/b2/local/trigger_freeze",                                # "Pauses current actions, resumes when cleared"
+            trigger_retreat = "/b2/local/trigger_retreat",                              # "Moves the robot 1 m backward from its current pose"
+            trigger_emergency = "/b2/local/trigger_emergency",                          # "Immediately cancels all actions and halts robot"
+            trigger_return_to_base = "/b2/local/trigger_return_to_base",                # "Navigates back to the GNSS position stored at initialization"
+            trigger_navigation = "/b2/local/trigger_navigation",                        # "Executes navigation tasks through ugv_task_planner"
             min_sec_between_commands = 1 # seconds
         )
         rclpy.init()
         rclpy.spin(node=Gesture_Commander_Coordinator(
-            classifier = EfficientNetB0_Wrapper(config=config,path="/home/triffid/hua_ws/gesture_module_v2/gesture_recognition/gesture_recognition/efficientnetb0_color_pretrained_ext.pt"),
-            # classifier = YOLO_Classification_Wrapper(config=config,path="/home/triffid/hua_ws/gesture_module_v2/gesture_recognition/gesture_recognition/yolo26s-cls-FR-GESTURE.pt"),
+            #classifier = EfficientNetB0_Wrapper(config=config,path="/home/triffid/hua_ws/gesture_module_v2/gesture_recognition/gesture_recognition/efficientnetb0_color_pretrained_ext.pt"),
+            classifier = YOLO_Classification_Wrapper(config=config,path="/home/triffid/hua_ws/gesture_module_v2/gesture_recognition/gesture_recognition/yolo26s-cls-FR-GESTURE.pt"),
             pose_estimator = YOLO_Pose_Wrapper(model="yolo26n-pose.pt", config=config), # DO NOT change the "model" parameter
             perceptron = DEMO_Perceptron(),
             # perceptron = RealSense_Perceptron(),

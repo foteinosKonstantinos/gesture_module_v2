@@ -1,6 +1,6 @@
 #   Foteinos Konstantinos
 #   kfoteinos@hua.gr
-#   
+#
 #   Harokopio University of Athens,
 #   Department of Informatics and Telematics
 #   HUA Computer Vision Group
@@ -753,7 +753,7 @@ class Gesture_Commander_Coordinator(Node):
         self.__last = None
         self.__detection_id = 0
         self.config = config
-        self.info(f"Running on {self.config.device}")
+        self.info(f"\033[1;102mRunning on {self.config.device}\033[0;0m")
 
     def info(self, text:str) -> None:
         self.get_logger().info(f"[{self.__log_counter}] {text}")
@@ -780,7 +780,7 @@ class Gesture_Commander_Coordinator(Node):
 
             if self.config.debugging:
                 detection_trajectory = []
-        
+
             self.__transformations.register_initial_gps(global_position)
 
             if self.__last is None: # first frame
@@ -823,10 +823,11 @@ class Gesture_Commander_Coordinator(Node):
             #     return
 
             prediction = self.__classifier.classify(color_array)
+            self.info(f"Class: {prediction['class']} Confidence: {prediction['confidence']:.2f}")
             # Filter: Is the classification confident enough?
             if not self.__classifier.accept(confidence=prediction['confidence'], config=self.config):
                 self.__command_filter.restart()
-                self.warn(f"Low confidence ({prediction['confidence']:.2f}).")
+                self.warn(f"Low confidence ({prediction['confidence']:.2f} < {self.config.classification_threshold}).")
                 return
 
             self.__command_filter.register_command(gesture_command=prediction['class'], confidence=prediction['confidence'])
@@ -901,9 +902,9 @@ def main():
             device = "cuda" if torch.cuda.is_available() else "cpu",
             classification_threshold = 0.90,
             min_occurrences = 4,
-            no_servers = True, # previous NO_UNDERLYING_IMPL, change this to False during integration with UPC
+            no_servers = True, # previous NO_UNDERLYING_IMPL, change this to False during integration with UPC (!)
             server_timeout = 1.0,
-            slop = 1e-1,
+            slop = 1, # small slop may prevent execution (!)
             max_classification_rate = 2, # fps
             depth_max_threshold = 100_000, # mm
             depth_min_threshold = 1_000, # mm

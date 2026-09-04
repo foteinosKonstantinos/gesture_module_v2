@@ -42,9 +42,9 @@ class Test(abc.ABC):
     @abc.abstractmethod
     def get_depth_frame(self, timestep:int) -> list[str]:pass   # timestep >= 0, relative path
     @abc.abstractmethod
-    def get_xy(self, timestep:int) -> tuple[int]:pass           # in mm
+    def get_xy(self, timestep:int) -> tuple[int]:pass           # in mm, must be floats (ROS requirement)
     @abc.abstractmethod
-    def get_orientation(self, timestep:int) -> float:pass       # degrees
+    def get_orientation(self, timestep:int) -> float:pass       # degrees, must be float (ROS requirement)
     @abc.abstractmethod
     def finished(self, timestep:int) -> bool:pass
 
@@ -187,9 +187,9 @@ class Filter_Test(Test):
     def get_depth_frame(self, timestep:int):
         return self.__depth_frames[timestep]
     def get_xy(self, timestep):
-        return (0, 0)
+        return (0.0, 0.0)
     def get_orientation(self, timestep):
-        return 0
+        return 0.0
     def finished(self, timestep):
         return timestep >= len(self.__rgb_frames)
 
@@ -214,9 +214,9 @@ class Classification_Test(Test):
     def get_depth_frame(self, timestep):
         return self.__depth_frames[timestep]
     def get_xy(self, timestep):
-        return (0, 0)
+        return (0.0, 0.0)
     def get_orientation(self, timestep):
-        return 0
+        return 0.0
     def finished(self, timestep):
         return timestep >= len(self.__rgb_frames)
 
@@ -229,9 +229,9 @@ class Localization_Parabola_Test(Test):
     def get_depth_frame(self, timestep):
         return self.__depth_frame
     def get_xy(self, timestep):
-        return (timestep * 1000, timestep**2 * 1000) # mm
+        return (timestep * 1000.0, timestep**2 * 1000.0) # mm
     def get_orientation(self, timestep):
-        return 0
+        return 0.0
     def finished(self, timestep):
         return False
 
@@ -244,9 +244,9 @@ class Localization_Line_Test(Test):
     def get_depth_frame(self, timestep):
         return self.__depth_frame
     def get_xy(self, timestep):
-        return (timestep * 1000, timestep * 1000) # mm
+        return (timestep * 1000.0, timestep * 1000.0) # mm
     def get_orientation(self, timestep):
-        return 135 # degress, perpedincular to the line
+        return 135.0 # degress, perpedincular to the line
     def finished(self, timestep):
         return False
 
@@ -286,7 +286,7 @@ class Producer(Node):
             topic = "/b2/nicla/magnetometer/heading_test",
             qos_profile=10
         )
-        self.__broadcaster = TransformBroadcaster(self)
+        # self.__broadcaster = TransformBroadcaster(self)
 
         self.__scenario = test_scenario
 
@@ -308,33 +308,33 @@ class Producer(Node):
         
         stamp = self.get_clock().now().to_msg()
 
-        q = euler_to_quaternion(roll=0, pitch=0, yaw=np.pi/2)
-        base_to_map = TransformStamped()
-        base_to_map.header.stamp = stamp
-        base_to_map.header.frame_id = 'map'
-        base_to_map.child_frame_id = 'base_link'
-        base_to_map.transform.translation.x = float(x_mm / 1000.0)
-        base_to_map.transform.translation.y = float(y_mm / 1000.0)
-        base_to_map.transform.translation.z = 0.0
-        base_to_map.transform.rotation.x = float(q[0].item())
-        base_to_map.transform.rotation.y = float(q[1].item())
-        base_to_map.transform.rotation.z = float(q[2].item())
-        base_to_map.transform.rotation.w = float(q[3].item())
-        self.__broadcaster.sendTransform(base_to_map)
+        # q = euler_to_quaternion(roll=0, pitch=0, yaw=np.pi/2)
+        # base_to_map = TransformStamped()
+        # base_to_map.header.stamp = stamp
+        # base_to_map.header.frame_id = 'map'
+        # base_to_map.child_frame_id = 'base_link'
+        # base_to_map.transform.translation.x = float(x_mm / 1000.0)
+        # base_to_map.transform.translation.y = float(y_mm / 1000.0)
+        # base_to_map.transform.translation.z = 0.0
+        # base_to_map.transform.rotation.x = float(q[0].item())
+        # base_to_map.transform.rotation.y = float(q[1].item())
+        # base_to_map.transform.rotation.z = float(q[2].item())
+        # base_to_map.transform.rotation.w = float(q[3].item())
+        # self.__broadcaster.sendTransform(base_to_map)
 
-        camera_to_base = TransformStamped()
-        camera_to_base.header.stamp = stamp
-        camera_to_base.header.frame_id = "base_link"
-        camera_to_base.child_frame_id = "camera_depth_frame"
-        camera_to_base.transform.translation.x = 0.0
-        camera_to_base.transform.translation.y = 0.0
-        camera_to_base.transform.translation.z = 0.0
-        q_camera = euler_to_quaternion(roll=0, pitch=np.pi/2, yaw=0)
-        camera_to_base.transform.rotation.x = float(q_camera[0].item())
-        camera_to_base.transform.rotation.y = float(q_camera[1].item())
-        camera_to_base.transform.rotation.z = float(q_camera[2].item())
-        camera_to_base.transform.rotation.w = float(q_camera[3].item())
-        self.__broadcaster.sendTransform(camera_to_base)
+        # camera_to_base = TransformStamped()
+        # camera_to_base.header.stamp = stamp
+        # camera_to_base.header.frame_id = "base_link"
+        # camera_to_base.child_frame_id = "camera_depth_frame"
+        # camera_to_base.transform.translation.x = 0.0
+        # camera_to_base.transform.translation.y = 0.0
+        # camera_to_base.transform.translation.z = 0.0
+        # q_camera = euler_to_quaternion(roll=0, pitch=np.pi/2, yaw=0)
+        # camera_to_base.transform.rotation.x = float(q_camera[0].item())
+        # camera_to_base.transform.rotation.y = float(q_camera[1].item())
+        # camera_to_base.transform.rotation.z = float(q_camera[2].item())
+        # camera_to_base.transform.rotation.w = float(q_camera[3].item())
+        # self.__broadcaster.sendTransform(camera_to_base)
 
         msg = SensorImage()
         msg.header.stamp = stamp
@@ -391,8 +391,9 @@ class Producer(Node):
 
 def main():
     try:
-        test = Localization_Line_Test()
-        print(test.generate_full_trajectory(max_timestep=100))
+        # test = Localization_Line_Test()
+        # print(test.generate_full_trajectory(max_timestep=100))
+        test = Classification_Test()
         rclpy.init()
         rclpy.spin(node=Producer(test_scenario=test,fps=FPS))
     except (ExternalShutdownException, KeyboardInterrupt) as e:

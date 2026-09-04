@@ -754,6 +754,8 @@ class Gesture_Commander_Coordinator(Node):
         self.__detection_id = 0
         self.config = config
         self.info(f"\033[1;102mRunning on {self.config.device}\033[0;0m")
+        if self.config.debugging: # For localization tests only
+            self.__detection_trajectory = []
 
     def info(self, text:str) -> None:
         self.get_logger().info(f"[{self.__log_counter}] {text}")
@@ -778,11 +780,12 @@ class Gesture_Commander_Coordinator(Node):
 
         try:
 
-            if self.config.debugging:
-                detection_trajectory = []
+            # Needs substantial changes to work with the localization tests: the xy coords are not calculated for every detection (!).
+            # Many "return" commands and filters should be removed (indicated with "REMOVE-FOR-LOCALIZATION-TESTS").
 
             self.__transformations.register_initial_gps(global_position)
 
+            # REMOVE-FOR-LOCALIZATION-TESTS (comment with #)
             if self.__last is None: # first frame
                 self.__last = time.time()
             else:
@@ -794,6 +797,7 @@ class Gesture_Commander_Coordinator(Node):
                     return
                 self.__last = current # do not place it before the if statement, as it needs to estimate the classification rate (not the camera FPS)
                 self.info(f"Current approximated classification rate: {approx_rate:.2f} FPS")
+
             self.__log_counter += 1
 
             color_array, depth_array = self.__perceptron.get_arrays(color_image=color_image, depth_image=depth_image)
@@ -804,7 +808,7 @@ class Gesture_Commander_Coordinator(Node):
             # Filter: Are there any humans?
             if len(all_keypoints) == 0:
                 self.__command_filter.restart()
-                return
+                return # REMOVE-FOR-LOCALIZATION-TESTS (comment with #)
             argmin_u, argmin_v, argmin_c, min_depth, argmin_idx = self.__pose_estimator.get_single_person(all_keypoints)
             # # Filter: Is pose estimation confident enough?
             # if not self.__pose_estimator.accept(argmin_c, config=self.config):
@@ -815,7 +819,7 @@ class Gesture_Commander_Coordinator(Node):
             if argmin_u is None:
                 self.__command_filter.restart()
                 self.warn(f"Cannot infer human distance")
-                return
+                return # REMOVE-FOR-LOCALIZATION-TESTS (comment with #)
             # # Filter: Is human sufficiently near?
             # if min_depth >= self.config.depth_max_threshold or min_depth =< self.config.depth_min_threshold:
             #     self.__command_filter.restart()
@@ -828,14 +832,14 @@ class Gesture_Commander_Coordinator(Node):
             if not self.__classifier.accept(confidence=prediction['confidence'], config=self.config):
                 self.__command_filter.restart()
                 self.warn(f"Low confidence ({prediction['confidence']:.2f} < {self.config.classification_threshold}).")
-                return
+                return # REMOVE-FOR-LOCALIZATION-TESTS (comment with #)
 
             self.__command_filter.register_command(gesture_command=prediction['class'], confidence=prediction['confidence'])
             # 2x Filter: Successive ocurrences (given filter 4, the respective predictions are higly confident) AND time between triggers
             if not self.__command_filter.accept():
                 # Do not restart!
                 self.warn(f"Ignoring {prediction['class']}")
-                return
+                return # REMOVE-FOR-LOCALIZATION-TESTS (comment with #)
 
             self.info(f"\033[1;102mACTION ACCEPTED FOR {prediction['class']}\033[0;0m")
 
@@ -847,10 +851,12 @@ class Gesture_Commander_Coordinator(Node):
 
             self.info(f"Detection position: {gps} (GPS) [or {self.__transformations.gps_to_abs_xy(lat=gps[1],lon=gps[0])} (xy in mm)]")
             if self.config.debugging:
-                detection_trajectory.append((abs_xyz[0], abs_xyz[1]))
-                if self.__detection_id % 10 == 0:
-                    print(detection_trajectory)
+                if len(self.__detection_trajectory) < 1000: # To avoid memory overflow
+                    self.__detection_trajectory.append((abs_xyz[0], abs_xyz[1]))
+                    # if self.__log_counter % 10 == 0:
+                    print(self.__detection_trajectory)
 
+            # REMOVE-FOR-LOCALIZATION-TESTS (comment with #)
             self.__action_caller.trigger_action(gesture_command=prediction['class'], x=abs_xyz[0], y=abs_xyz[1], z=abs_xyz[2], q0=0, q1=0, q2=0, q3=1)
             self.__publisher.publish(String(data=json.dumps({
                 "type": "FeatureCollection",

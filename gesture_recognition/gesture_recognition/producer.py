@@ -246,7 +246,7 @@ class Localization_Line_Test(Test):
     def get_xy(self, timestep):
         return (timestep * 1000.0, timestep * 1000.0) # mm
     def get_orientation(self, timestep):
-        return 135.0 # degress, perpedincular to the line
+        return 45.0 # degress, perpedincular to the line
     def finished(self, timestep):
         return False
 
@@ -363,7 +363,7 @@ class Producer(Node):
         msg.header.frame_id = "camera_depth_frame"
         msg.height = color.shape[0]
         msg.width = color.shape[1]
-        msg.k = [500.0, 0.0, 640.0, 0.0, 500.0, 360.0, 0.0, 0.0, 1.0]
+        msg.k = [606.0, 0.0, 423.0, 0.0, 605.0, 231.0, 0.0, 0.0, 1.0] # FR-GESTURE camera intrinsics
         self.__info_publisher.publish(msg)
 
         msg = NavSatFix()
@@ -381,7 +381,7 @@ class Producer(Node):
         # self.__odo_publisher.publish(msg)
 
         msg = Float32()
-        msg.data = omega # degrees
+        msg.data = omega # degrees, magnetic north, counterclockwise
         self.__heading_publisher.publish(msg)
 
         self.get_logger().info(f"Publishing {color_path} at x={x_mm}, y={y_mm}, omega={omega}")

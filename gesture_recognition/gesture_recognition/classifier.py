@@ -773,7 +773,7 @@ class Gesture_Commander_Coordinator(Node):
             depth_image:    16UC1 in mm depth map (H x W x 2) of the same dimensions and aligned to the color_image
             intrinsics:     Camera intrinsics (the code uses only K matrix)
             global_position:Longitude/latitude (degrees)
-            heading:        The code needs the "absolute" orientation (w.r.t. to the "standard" xy plane), as described in (*)
+            heading:        The code needs the "absolute" orientation (w.r.t. to the "standard" xy plane), as described in (*) - magnetic north ((0,1) vector, south-to-north direction)
         Publishes:
             See README
         '''

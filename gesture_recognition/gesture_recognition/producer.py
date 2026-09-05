@@ -44,7 +44,7 @@ class Test(abc.ABC):
     @abc.abstractmethod
     def get_xy(self, timestep:int) -> tuple[int]:pass           # in mm, must be floats (ROS requirement)
     @abc.abstractmethod
-    def get_orientation(self, timestep:int) -> float:pass       # degrees, must be float (ROS requirement)
+    def get_orientation(self, timestep:int) -> float:pass       # degrees, must be float (ROS requirement), 0<=omega<360
     @abc.abstractmethod
     def finished(self, timestep:int) -> bool:pass
 
@@ -246,7 +246,7 @@ class Localization_Line_Test(Test):
     def get_xy(self, timestep):
         return (timestep * 1000.0, timestep * 1000.0) # mm
     def get_orientation(self, timestep):
-        return 45.0 # degress, perpedincular to the line
+        return 360.0-45.0 # degress, perpedincular to the line
     def finished(self, timestep):
         return False
 
@@ -381,7 +381,7 @@ class Producer(Node):
         # self.__odo_publisher.publish(msg)
 
         msg = Float32()
-        msg.data = omega # degrees, magnetic north, counterclockwise
+        msg.data = omega # degrees, magnetic north, clockwise (!)
         self.__heading_publisher.publish(msg)
 
         self.get_logger().info(f"Publishing {color_path} at x={x_mm}, y={y_mm}, omega={omega}")

@@ -43,11 +43,11 @@ Various filters are applied to reduce false positives. The chain of filters is i
 
 | Topic name | Message type | Usage | Details |
 | --- | --- | --- | --- |
-| /camera_front_435i/realsense_front_435i/color/image_raw | Image | Input | 8-bit RGB (H x W x 3) |
-| /camera_front_435i/realsense_front_435i/depth/image_rect_raw | Image | Input | 16UC1 in mm (H x W x 2) aligned to the RGB |
-| /camera_front_435i/realsense_front_435i/color/camera_info | CameraInfo | Input | - |
+| /b2/camera_front_435i/realsense_front_435i/color/image_raw | Image | Input | 8-bit RGB (H x W x 3) |
+| /b2/camera_front_435i/realsense_front_435i/depth/image_rect_raw | Image | Input | 16UC1 in mm (H x W x 2) aligned to the RGB |
+| /b2/camera_front_435i/realsense_front_435i/color/camera_info | CameraInfo | Input | - |
 | /fix | NavSatFix | Input | - |
-| /b2/nicla/magnetometer/heading | Float32 | Input | Global UGV orientation in degrees (0 = magnetic north) |
+| /b2/nicla/magnetometer/heading | Float32 | Input | Global UGV orientation in degrees (**0 = magnetic north, clockwise**) |
 | /gesture_command | String | Output | Stringified GeoJSON, see below |
 <!-- /dog_odom | Odometry | Input | Orientation should be expresses wr.t. to a global coordinate system (the "standard" xy plane aligned to parallels and meridians) | -->
 

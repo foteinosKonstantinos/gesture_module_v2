@@ -251,7 +251,7 @@ class Approximate_Transformations(Transformations):
         Parameters:
             x:          in mm (w.r.t. to robot frame)
             y:          in mm (w.r.t. to robot frame)
-            heading:    needs the (global) orientation in radians
+            heading:    needs the (global) orientation in radians: 0=magnetic north, clockwise, range: [0, 2*pi)
         Returns:
             The distance between the robot and the detection (meters) and the absolute angle (radians)
         '''
@@ -259,7 +259,12 @@ class Approximate_Transformations(Transformations):
         y_m = y / 1000
         # quaternion = odometry.pose.pose.orientation
         # camera_heading = math.pi / 2 - Approximate_Transformations.__quaternion_to_rpy(quaternion.x, quaternion.y, quaternion.z, quaternion.w)["yaw"]
-        angle_relative = math.atan2(x_m, y_m)
+        angle_relative = math.atan2(x_m, y_m) # range: [-pi, pi], counterclockwise, zero = magnetic east
+        # Must be in the range [-pi, pi] and clockwise: 
+        # 1) the camera_heading lies on [0, 2*pi) and 
+        camera_heading = camera_heading if camera_heading<=math.pi else (camera_heading - 2*math.pi)
+        # 2) the angle_relative is counterclockwise (!) (but 0 = magnetic north)
+        angle_relative = - angle_relative
         angle_absolute = camera_heading + angle_relative
         distance = math.hypot(x_m, y_m)
         return distance, angle_absolute
@@ -267,15 +272,15 @@ class Approximate_Transformations(Transformations):
         '''
         Parameters:
             distance:       in meters (between robot and )
-            angle_absolute: in radians (absolute polar coordinates)
+            angle_absolute: in radians (absolute polar coordinates):  0=magnetic north, clockwise, range: [0, 2*pi)
         Returns:
             lat/lon (GPS)    
         '''
         azimuth_deg = math.degrees(angle_absolute)
-        result = Geodesic.WGS84.Direct(robot_lat, robot_lon, azimuth_deg, distance)
+        result = Geodesic.WGS84.Direct(robot_lat, robot_lon, azimuth_deg, distance) # "measured in degrees clockwise from north"
         return result["lat2"], result["lon2"]
     def base_xyz_to_abs_xyz(self, xyz:tuple[float], stamp, camera_heading:float, robot_gps:NavSatFix) -> tuple[float]:
-        '''input/output in mm, z=0, camera_heading in radians'''
+        '''input/output in mm, z=0, camera_heading in radians (0-2*pi range)'''
         distance, angle_absolute = self.__xy_to_dist_ang(x=xyz[0], y=xyz[1], camera_heading=camera_heading)
         lat, lon = self.__dist_ang_to_gps(distance=distance, angle_absolute=angle_absolute, robot_lat=robot_gps.latitude, robot_lon=robot_gps.longitude)
         return *self.gps_to_abs_xy(lat=lat, lon=lon), 0 # in mm
@@ -755,7 +760,11 @@ class Gesture_Commander_Coordinator(Node):
         self.config = config
         self.info(f"\033[1;102mRunning on {self.config.device}\033[0;0m")
         if self.config.debugging: # For localization tests only
-            self.__detection_trajectory = []
+            self.__trajectory = {
+                "detection position (xy)": [],
+                "robot position (xy)": [],
+                "robot orientation (deg)": []
+            }
 
     def info(self, text:str) -> None:
         self.get_logger().info(f"[{self.__log_counter}] {text}")
@@ -773,7 +782,7 @@ class Gesture_Commander_Coordinator(Node):
             depth_image:    16UC1 in mm depth map (H x W x 2) of the same dimensions and aligned to the color_image
             intrinsics:     Camera intrinsics (the code uses only K matrix)
             global_position:Longitude/latitude (degrees)
-            heading:        The code needs the "absolute" orientation (w.r.t. to the "standard" xy plane), as described in (*) - magnetic north ((0,1) vector, south-to-north direction)
+            heading:        The code needs the "absolute" orientation (w.r.t. to the "standard" xy plane), as described in (*) - magnetic north ((0,1) vector, south-to-north direction), clockwise
         Publishes:
             See README
         '''
@@ -843,18 +852,21 @@ class Gesture_Commander_Coordinator(Node):
 
             self.info(f"\033[1;102mACTION ACCEPTED FOR {prediction['class']}\033[0;0m")
 
+            # Derection position
             rel_xyz = self.__transformations.uvd_to_rel_xyz(u=argmin_u,v=argmin_v,depth=min_depth,intrinsics=np.asarray(intrinsics.k).reshape((3,3)))
             base_xyz = self.__transformations.rel_xyz_to_base_xyz(xyz=rel_xyz,stamp=color_image.header.stamp)
-            # convert heading from degrees to radians
+            # convert heading from degrees to radians (range: [0, 2*pi))
             abs_xyz = self.__transformations.base_xyz_to_abs_xyz(xyz=base_xyz,stamp=color_image.header.stamp, camera_heading=(heading.data*math.pi/180), robot_gps=global_position)
             gps = self.__transformations.abs_xy_to_gps(x=abs_xyz[0],y=abs_xyz[1]) # lon, lat
 
             self.info(f"Detection position: {gps} (GPS) [or {self.__transformations.gps_to_abs_xy(lat=gps[1],lon=gps[0])} (xy in mm)]")
             if self.config.debugging:
-                if len(self.__detection_trajectory) < 1000: # To avoid memory overflow
-                    self.__detection_trajectory.append((abs_xyz[0], abs_xyz[1]))
+                if len(self.__trajectory) < 1000: # To avoid memory overflow
+                    self.__trajectory["detection position (xy)"].append((abs_xyz[0], abs_xyz[1]))
+                    self.__trajectory["robot position (xy)"].append((self.__transformations.gps_to_abs_xy(global_position.latitude, global_position.longitude)))
+                    self.__trajectory["robot orientation (deg)"].append(heading.data)
                     # if self.__log_counter % 10 == 0:
-                    print(self.__detection_trajectory)
+                    print(self.__trajectory)
 
             # REMOVE-FOR-LOCALIZATION-TESTS (comment with #)
             self.__action_caller.trigger_action(gesture_command=prediction['class'], x=abs_xyz[0], y=abs_xyz[1], z=abs_xyz[2], q0=0, q1=0, q2=0, q3=1)

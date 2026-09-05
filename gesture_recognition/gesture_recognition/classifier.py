@@ -263,7 +263,7 @@ class Approximate_Transformations(Transformations):
         # Must be in the range [-pi, pi] and clockwise: 
         # 1) the camera_heading lies on [0, 2*pi) and 
         camera_heading = camera_heading if camera_heading<=math.pi else (camera_heading - 2*math.pi)
-        # 2) the angle_relative is counterclockwise (!) (but 0 = magnetic north)
+        # 2) the angle_relative is counterclockwise (!) (0 = robot direction)
         angle_relative = - angle_relative
         angle_absolute = camera_heading + angle_relative
         distance = math.hypot(x_m, y_m)

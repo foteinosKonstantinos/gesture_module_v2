@@ -220,6 +220,35 @@ class Classification_Test(Test):
     def finished(self, timestep):
         return timestep >= len(self.__rgb_frames)
 
+class Action_Test(Test):
+    def __init__(self):
+        self.__pairs = [
+            ('frames/high_Freeze_340_color.png', 'frames/high_Freeze_340_depth.png'),                           # FREEZE
+            ('frames/high_Ok-to-go_347_color.png', 'frames/high_Ok-to-go_347_depth.png'),                       # UNFREEZE (OK-TO-GO)
+            ('frames/high_Move-away-from-here_348_color.png', 'frames/high_Move-away-from-here_348_depth.png'), # MOVE-AWAY-FROM-HERE
+            ('frames/high_Evacuate-the-area_343_color.png', 'frames/high_Evacuate-the-area_343_depth.png'),     # EVACUATE-THE-AREA
+            ('frames/high_Operation-finished_339_color.png', 'frames/high_Operation-finished_339_depth.png'),   # OPERATION-FINISHED
+            ('frames/high_I-lost-connection_344_color.png', 'frames/high_I-lost-connection_344_depth.png'),     # I-LOST-CONNECTION
+            ('frames/high_I-need-help_342_color.png', 'frames/high_I-need-help_342_depth.png'),                 # I-NEED-HELP
+            ('frames/high_Come-to-me_338_color.png', 'frames/high_Come-to-me_338_depth.png'),                   # COME-TO-ME
+            ('frames/high_Fetch-an-axe_346_color.png', 'frames/high_Fetch-an-axe_346_depth.png'),               # FETCH-AN-AXE
+            ('frames/high_Fetch-a-gas-mask_337_color.png', 'frames/high_Fetch-a-gas-mask_337_depth.png'),       # FETCH-A-GAS-MASK
+            ('frames/STOP_high_16_color.png', 'frames/STOP_high_16_depth.png'),                                 # STOP                  "cancels all running actions except emergency, then auto-clears after ~1 s."
+            ('frames/high_Fetch-a-shovel_357_color.png', 'frames/high_Fetch-a-shovel_357_depth.png'),           # FETCH-A-SHOVEL
+            ('frames/high_Emergency-situation_341_color.png', 'frames/high_Emergency-situation_341_depth.png'), # EMERGENCY-SITUATION   Cancels everything
+            ('frames/high_Fetch-a-shovel_357_color.png', 'frames/high_Fetch-a-shovel_357_depth.png'),           # FETCH-A-SHOVEL        Should be rejected
+        ]
+    def get_rgb_frame(self, timestep):
+        return self.__pairs[timestep][0]
+    def get_depth_frame(self, timestep):
+        return self.__pairs[timestep][1]
+    def get_xy(self, timestep):
+        return (0.0, 0.0)
+    def get_orientation(self, timestep):
+        return 0.0
+    def finished(self, timestep):
+        return timestep >= len(self.__pairs)
+
 class Localization_Parabola_Test(Test):
     def __init__(self):
         self.__rgb_frame = 'frames/high_Freeze_340_color.png'

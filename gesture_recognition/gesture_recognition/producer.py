@@ -279,6 +279,36 @@ class Localization_Line_Test(Test):
     def finished(self, timestep):
         return False
 
+class Interactive_Test(Test):
+    def __init__(self):
+        self.__current_class = None
+        self.__frames = {
+            "freeze":               ('frames/high_Freeze_340_color.png', 'frames/high_Freeze_340_depth.png'),
+            "unfreeze":             ('frames/high_Ok-to-go_347_color.png', 'frames/high_Ok-to-go_347_depth.png'),
+            "move-away-from-here":  ('frames/high_Move-away-from-here_348_color.png', 'frames/high_Move-away-from-here_348_depth.png'),
+            "evacuate-the-area":    ('frames/high_Evacuate-the-area_343_color.png', 'frames/high_Evacuate-the-area_343_depth.png'),
+            "operation-finished":   ('frames/high_Operation-finished_339_color.png', 'frames/high_Operation-finished_339_depth.png'),
+            "i-lost-connection":    ('frames/high_I-lost-connection_344_color.png', 'frames/high_I-lost-connection_344_depth.png'),
+            "i-need-help":          ('frames/high_I-need-help_342_color.png', 'frames/high_I-need-help_342_depth.png'),
+            "come-to-me":           ('frames/high_Come-to-me_338_color.png', 'frames/high_Come-to-me_338_depth.png'),
+            "fetch-an-axe":         ('frames/high_Fetch-an-axe_346_color.png', 'frames/high_Fetch-an-axe_346_depth.png'),
+            "fetch-a-gas-mask":     ('frames/high_Fetch-a-gas-mask_337_color.png', 'frames/high_Fetch-a-gas-mask_337_depth.png'),
+            "stop":                 ('frames/STOP_high_16_color.png', 'frames/STOP_high_16_depth.png'),
+            "fetch-a-shovel":       ('frames/high_Fetch-a-shovel_357_color.png', 'frames/high_Fetch-a-shovel_357_depth.png'),
+            "emergency-situation":  ('frames/high_Emergency-situation_341_color.png', 'frames/high_Emergency-situation_341_depth.png'),
+        }
+        print(f"\nAvailable options: {self.__frames.keys()}\n")
+    def get_rgb_frame(self, timestep:int) -> list[str]:
+        return self.__frames[self.__current_class][0]
+    def get_depth_frame(self, timestep:int) -> list[str]:
+        return self.__frames[self.__current_class][1]
+    def get_xy(self, timestep:int) -> tuple[int]:
+        return (0.0, 0.0)
+    def get_orientation(self, timestep:int) -> float:
+        return 0.0
+    def finished(self, timestep:int) -> bool:
+        self.__current_class = input("Enter command: ")
+        return False
 
 class Producer(Node):
 
@@ -422,7 +452,7 @@ def main():
     try:
         # test = Localization_Line_Test()
         # print(test.generate_full_trajectory(max_timestep=100))
-        test = Classification_Test()
+        test = Interactive_Test()
         rclpy.init()
         rclpy.spin(node=Producer(test_scenario=test,fps=FPS))
     except (ExternalShutdownException, KeyboardInterrupt) as e:

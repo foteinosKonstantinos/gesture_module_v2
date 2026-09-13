@@ -322,7 +322,7 @@ class Producer(Node):
         )
         self.__depth_publisher=self.create_publisher(
             msg_type = SensorImage,
-            topic = "/b2/camera_front_435i/realsense_front_435i/depth/image_rect_raw_test",
+            topic = "/b2/camera_front_435i/realsense_front_435i/aligned_depth_to_color/image_raw_test",
             qos_profile = 10
         )
         self.__info_publisher=self.create_publisher(

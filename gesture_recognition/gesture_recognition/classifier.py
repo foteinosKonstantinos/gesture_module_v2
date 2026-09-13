@@ -699,23 +699,26 @@ class Perceptron(abc.ABC):
 class DEMO_Perceptron(Perceptron):
     def get_arrays(self, color_image, depth_image):
         color_array = np.asarray(color_image.data, dtype=np.uint8).reshape((color_image.height, color_image.width, 3)) # H x W x 3
-        depth_array = cv2.resize(np.asarray(np.frombuffer(depth_image.data,dtype=np.uint16), dtype=np.float32).reshape((depth_image.height, depth_image.width)),\
-                                 dsize=(color_image.width, color_image.height)).reshape((color_image.height, color_image.width, 1)) # H x W x 1
+        # depth_array = cv2.resize(np.asarray(np.frombuffer(depth_image.data,dtype=np.uint16), dtype=np.float32).reshape((depth_image.height, depth_image.width)),\
+        #                          dsize=(color_image.width, color_image.height)).reshape((color_image.height, color_image.width, 1)) # H x W x 1
+        depth_array = np.frombuffer(depth_image.data, dtype=np.uint16).reshape((depth_image.height, depth_image.width)) # mm
         return color_array, depth_array
     
 class RealSense_Perceptron(Perceptron):
     def get_arrays(self, color_image, depth_image):
         yuyv = np.frombuffer(color_image.data, dtype=np.uint8)
         yuyv = yuyv.reshape((color_image.height, color_image.width, 2))
-        bgr = cv2.cvtColor(yuyv, cv2.COLOR_YUV2BGR_YUY2)
-        color_array = bgr.reshape((color_image.height, color_image.width, 3))
-        depth_array = np.frombuffer(depth_image.data, dtype=np.uint16).reshape((depth_image.height, depth_image.width))
+        # bgr = cv2.cvtColor(yuyv, cv2.COLOR_YUV2BGR_YUY2)
+        # color_array = bgr.reshape((color_image.height, color_image.width, 3)) # BGR
+        rgb = cv2.cvtColor(yuyv, cv2.COLOR_YUV2RGB_YUY2)
+        color_array = rgb.reshape((color_image.height, color_image.width, 3)) # RGB        
+        depth_array = np.frombuffer(depth_image.data, dtype=np.uint16).reshape((depth_image.height, depth_image.width)) # mm
         return color_array, depth_array
 
 # Cancelled
-class Camera360_Perceptron(Perceptron):
-    def get_arrays(self, color_image, depth_image):
-        return super().get_arrays(color_image, depth_image)
+# class Camera360_Perceptron(Perceptron):
+#     def get_arrays(self, color_image, depth_image):
+#         return super().get_arrays(color_image, depth_image)
 
 # Gesture commander -----------------------------------------------------------------------------------------------------------------------------------------------------------
 
@@ -907,12 +910,12 @@ def main():
         config = Configuration(
             debugging = True,
             heading_fix_required = True,
-            nav_fix_topic = "/fix_test",
-            heading_topic = "/b2/nicla/magnetometer/heading_test",
-            # odom_topic = "/dog_odom_test",
-            depth_topic = "/b2/camera_front_435i/realsense_front_435i/depth/image_rect_raw_test",
-            rgb_topic = "/b2/camera_front_435i/realsense_front_435i/color/image_raw_test",
-            camera_info = "/b2/camera_front_435i/realsense_front_435i/color/camera_info_test",
+            nav_fix_topic = "/fix",
+            heading_topic = "/b2/nicla/magnetometer/heading",
+            # odom_topic = "/dog_odom",
+            depth_topic = "/b2/camera_front_435i/realsense_front_435i/aligned_depth_to_color/image_raw",
+            rgb_topic = "/b2/camera_front_435i/realsense_front_435i/color/image_raw",
+            camera_info = "/b2/camera_front_435i/realsense_front_435i/color/camera_info",
             output_topic = "/gesture_command",
             target_timeout_seconds = 1e-1,
             earth_radius = 6_378_137.0, # in meters

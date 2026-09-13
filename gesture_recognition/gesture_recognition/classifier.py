@@ -699,6 +699,7 @@ class Perceptron(abc.ABC):
 class DEMO_Perceptron(Perceptron):
     def get_arrays(self, color_image, depth_image):
         color_array = np.asarray(color_image.data, dtype=np.uint8).reshape((color_image.height, color_image.width, 3)) # H x W x 3
+        color_array = cv2.cvtColor(color_array, cv2.COLOR_BGR2RGB)
         # depth_array = cv2.resize(np.asarray(np.frombuffer(depth_image.data,dtype=np.uint16), dtype=np.float32).reshape((depth_image.height, depth_image.width)),\
         #                          dsize=(color_image.width, color_image.height)).reshape((color_image.height, color_image.width, 1)) # H x W x 1
         depth_array = np.frombuffer(depth_image.data, dtype=np.uint16).reshape((depth_image.height, depth_image.width)) # mm
@@ -945,8 +946,8 @@ def main():
             #classifier = EfficientNetB0_Wrapper(config=config,path="/home/triffid/hua_ws/gesture_module_v2/gesture_recognition/gesture_recognition/efficientnetb0_color_pretrained_ext.pt"),
             classifier = YOLO_Classification_Wrapper(config=config,path="/home/triffid/hua_ws/gesture_module_v2/gesture_recognition/gesture_recognition/yolo26s-cls-FR-GESTURE.pt"),
             pose_estimator = YOLO_Pose_Wrapper(model="yolo26n-pose.pt", config=config), # DO NOT change the "model" parameter
-            perceptron = DEMO_Perceptron(),
-            # perceptron = RealSense_Perceptron(),
+            # perceptron = DEMO_Perceptron(),
+            perceptron = RealSense_Perceptron(),
             config = config,
             transformations = Approximate_Transformations(config=config)
         ))

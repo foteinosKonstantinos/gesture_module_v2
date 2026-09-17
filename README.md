@@ -294,7 +294,6 @@ To test with dummy data, run also the following:
 | Configuration Parameter | Explanation | Change? |
 | --- | --- | --- |
 | `debugging` | If True, more log messages will be printed. | ⚠️ |
-| `heading_fix_required` | False if fix and/or heading topics are not available. | ⚠️ |
 | `nav_fix_topic` | Topic name for the global position (NavSatFix). | ✅ |
 | `heading_topic` | Topic name for the heading, i.e. the absolute orientation (Float32). | ✅ |
 | `depth_topic` | Topic name for the depth image (Image). | ✅ |

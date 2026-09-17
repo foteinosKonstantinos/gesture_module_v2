@@ -38,12 +38,12 @@ from rclpy.qos import qos_profile_sensor_data
 class Configuration:
     def __init__(self,
             debugging:bool,
-            heading_fix_required:bool,
             nav_fix_topic:str,
             heading_topic:str,
             depth_topic:str,
             rgb_topic:str,
             camera_info:str,
+            status_topic:str,
             output_topic:str,
             target_timeout_seconds:float,
             earth_radius:float,
@@ -68,12 +68,12 @@ class Configuration:
             min_sec_between_commands:float
             ):
         self.debugging = debugging
-        self.heading_fix_required = heading_fix_required
         self.nav_fix_topic = nav_fix_topic
         self.heading_topic = heading_topic
         self.depth_topic = depth_topic
         self.rgb_topic = rgb_topic
         self.camera_info = camera_info
+        self.status_topic = status_topic
         self.output_topic = output_topic
         self.target_timeout_seconds = target_timeout_seconds
         self.earth_radius = earth_radius
@@ -603,8 +603,13 @@ class Action_Caller:
         elif gesture_command == "unfreeze": # Previously named "ok-to-go", unfreeze
             msg = Trigger.Goal()
             msg.activate = False
-            self.__call_server(self.__freeze, msg)
-        
+            if args["status"] == "FREEZE":
+                self.__call_server(self.__freeze, msg)
+            elif args["status"] == "EMERGENCY":
+                self.__call_server(self.__emergency, msg)
+            else:
+                self.__node.warn(f"Ignoring unfreeze; robot is neither in FREEZE nor in EMERGENCY mode (state: {args['status']})")
+
         elif gesture_command == "move-away-from-here":
             msg = Trigger.Goal()
             msg.activate = True
@@ -737,10 +742,11 @@ class Gesture_Commander_Coordinator(Node):
                 Subscriber(node=self, msg_type=Image, topic=config.rgb_topic), 
                 Subscriber(node=self, msg_type=Image, topic=config.depth_topic), 
                 Subscriber(node=self, msg_type=CameraInfo, topic=config.camera_info),
-            ] + ([Subscriber(node=self, msg_type=NavSatFix, topic=config.nav_fix_topic, qos_profile=qos_profile_sensor_data),
-                #   Subscriber(node=self, msg_type=Odometry, topic=config.odom_topic)] if config.odom_fix_required else []),
-                  Subscriber(node=self, msg_type=Float32, topic=config.heading_topic)] if config.heading_fix_required else []),
-            queue_size=10,
+                Subscriber(node=self, msg_type=NavSatFix, topic=config.nav_fix_topic, qos_profile=qos_profile_sensor_data),
+                Subscriber(node=self, msg_type=Float32, topic=config.heading_topic),
+                Subscriber(node=self, msg_type=String, topic=config.status_topic),
+            ],
+            queue_size=1,
             slop=config.slop,
             allow_headerless=True
         )
@@ -779,7 +785,7 @@ class Gesture_Commander_Coordinator(Node):
     def warn(self, text:str) -> None:
         self.get_logger().warning(f"[{self.__log_counter}] {text}")
 
-    def __main_callback(self, color_image:Image, depth_image:Image, intrinsics:CameraInfo, global_position:NavSatFix|None=None, heading:Float32|None=None):
+    def __main_callback(self, color_image:Image, depth_image:Image, intrinsics:CameraInfo, global_position:NavSatFix, heading:Float32, status:String):
         '''
         Parameters:
             color_image:    8-bit RGB image (H x W x 3)
@@ -787,6 +793,7 @@ class Gesture_Commander_Coordinator(Node):
             intrinsics:     Camera intrinsics (the code uses only K matrix)
             global_position:Longitude/latitude (degrees)
             heading:        The code needs the "absolute" orientation (w.r.t. to the "standard" xy plane), as described in (*) - magnetic north ((0,1) vector, south-to-north direction), clockwise
+            status:         Robot's state (e.g., EMERGENCY, FREEZE)
         Publishes:
             See README
         '''
@@ -872,8 +879,9 @@ class Gesture_Commander_Coordinator(Node):
                     # if self.__log_counter % 10 == 0:
                     print(self.__trajectory)
 
+            status_data = json.loads(status.data)["data"]
             # REMOVE-FOR-LOCALIZATION-TESTS (comment with #)
-            self.__action_caller.trigger_action(gesture_command=prediction['class'], x=abs_xyz[0], y=abs_xyz[1], z=abs_xyz[2], q0=0, q1=0, q2=0, q3=1)
+            self.__action_caller.trigger_action(gesture_command=prediction['class'], x=abs_xyz[0], y=abs_xyz[1], z=abs_xyz[2], q0=0, q1=0, q2=0, q3=1, status=status_data)
             self.__publisher.publish(String(data=json.dumps({
                 "type": "FeatureCollection",
                 "features":[
@@ -910,20 +918,20 @@ def main():
     try:
         config = Configuration(
             debugging = True,
-            heading_fix_required = True,
             nav_fix_topic = "/fix",
             heading_topic = "/b2/nicla/magnetometer/heading",
             # odom_topic = "/dog_odom",
             depth_topic = "/b2/camera_front_435i/realsense_front_435i/aligned_depth_to_color/image_raw",
             rgb_topic = "/b2/camera_front_435i/realsense_front_435i/color/image_raw",
             camera_info = "/b2/camera_front_435i/realsense_front_435i/color/camera_info",
+            status_topic = "/b2/nav_status",
             output_topic = "/gesture_command",
             target_timeout_seconds = 1e-1,
             earth_radius = 6_378_137.0, # in meters
             pose_estimation_threshold = 0.80,
             device = "cuda" if torch.cuda.is_available() else "cpu",
             classification_threshold = 0.90,
-            min_occurrences = 4,
+            min_occurrences = 2,
             no_servers = True, # previous NO_UNDERLYING_IMPL, change this to False during integration with UPC (!)
             server_timeout = 1.0,
             slop = 1, # small slop may prevent execution (!)

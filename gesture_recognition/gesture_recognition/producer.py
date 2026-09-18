@@ -348,7 +348,7 @@ class Producer(Node):
         )
         self.__status_publisher = self.create_publisher(
             msg_type=String,
-            topic = "/b2/nav_status",
+            topic = "/b2/nav_status_test",
             qos_profile=10
         )
         # self.__broadcaster = TransformBroadcaster(self)

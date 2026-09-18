@@ -45,6 +45,8 @@ class Configuration:
             camera_info:str,
             status_topic:str,
             output_topic:str,
+            heartbeat_topic:str,
+            heartbeat_period:float,
             target_timeout_seconds:float,
             earth_radius:float,
             pose_estimation_threshold:float,
@@ -75,6 +77,8 @@ class Configuration:
         self.camera_info = camera_info
         self.status_topic = status_topic
         self.output_topic = output_topic
+        self.heartbeat_topic = heartbeat_topic
+        self.heartbeat_period = heartbeat_period
         self.target_timeout_seconds = target_timeout_seconds
         self.earth_radius = earth_radius
         self.pose_estimation_threshold = pose_estimation_threshold
@@ -751,11 +755,17 @@ class Gesture_Commander_Coordinator(Node):
             allow_headerless=True
         )
         self.__time_synchronizer.registerCallback(self.__main_callback)
-        self.__publisher=self.create_publisher(
+        self.__command_publisher=self.create_publisher(
             msg_type = String,
             topic = config.output_topic,
             qos_profile = 10
         )
+        self.__heartbeat_publisher=self.create_publisher(
+            msg_type = String,
+            topic = config.heartbeat_topic,
+            qos_profile = 10
+        )
+        self.__timer = self.create_timer(config.heartbeat_period, self.__heartbeat_callback)
         self.__classifier = classifier
         self.__pose_estimator = pose_estimator
         self.__command_filter = Command_Filter(node=self, config=config)
@@ -784,6 +794,9 @@ class Gesture_Commander_Coordinator(Node):
 
     def warn(self, text:str) -> None:
         self.get_logger().warning(f"[{self.__log_counter}] {text}")
+
+    def __heartbeat_callback(self):
+        self.__heartbeat_publisher.publish("GESTURE COMMANDER IS UP AND RUNNING")
 
     def __main_callback(self, color_image:Image, depth_image:Image, intrinsics:CameraInfo, global_position:NavSatFix, heading:Float32, status:String):
         '''
@@ -861,7 +874,8 @@ class Gesture_Commander_Coordinator(Node):
                 self.warn(f"Ignoring {prediction['class']}")
                 return # REMOVE-FOR-LOCALIZATION-TESTS (comment with #)
 
-            self.info(f"\033[1;102mACTION ACCEPTED FOR {prediction['class']}\033[0;0m")
+            status_data = json.loads(status.data)["data"]
+            self.info(f"\033[1;102mACTION ACCEPTED FOR {prediction['class']}\033[0;0m - robot state: [{status_data}]")
 
             # Derection position
             rel_xyz = self.__transformations.uvd_to_rel_xyz(u=argmin_u,v=argmin_v,depth=min_depth,intrinsics=np.asarray(intrinsics.k).reshape((3,3)))
@@ -879,10 +893,9 @@ class Gesture_Commander_Coordinator(Node):
                     # if self.__log_counter % 10 == 0:
                     print(self.__trajectory)
 
-            status_data = json.loads(status.data)["data"]
             # REMOVE-FOR-LOCALIZATION-TESTS (comment with #)
             self.__action_caller.trigger_action(gesture_command=prediction['class'], x=abs_xyz[0], y=abs_xyz[1], z=abs_xyz[2], q0=0, q1=0, q2=0, q3=1, status=status_data)
-            self.__publisher.publish(String(data=json.dumps({
+            self.__command_publisher.publish(String(data=json.dumps({
                 "type": "FeatureCollection",
                 "features":[
                     {
@@ -916,23 +929,26 @@ class Gesture_Commander_Coordinator(Node):
 
 def main():
     try:
+        TEST = "" # "_test"
         config = Configuration(
             debugging = True,
-            nav_fix_topic = "/fix",
-            heading_topic = "/b2/nicla/magnetometer/heading",
+            nav_fix_topic = "/fix"+TEST,
+            heading_topic = "/b2/nicla/magnetometer/heading"+TEST,
             # odom_topic = "/dog_odom",
-            depth_topic = "/b2/camera_front_435i/realsense_front_435i/aligned_depth_to_color/image_raw",
-            rgb_topic = "/b2/camera_front_435i/realsense_front_435i/color/image_raw",
-            camera_info = "/b2/camera_front_435i/realsense_front_435i/color/camera_info",
-            status_topic = "/b2/nav_status",
+            depth_topic = "/b2/camera_front_435i/realsense_front_435i/aligned_depth_to_color/image_raw"+TEST,
+            rgb_topic = "/b2/camera_front_435i/realsense_front_435i/color/image_raw"+TEST,
+            camera_info = "/b2/camera_front_435i/realsense_front_435i/color/camera_info"+TEST,
+            status_topic = "/b2/nav_status"+TEST,
             output_topic = "/gesture_command",
+            heartbeat_topic = "/gesture_commander_heartbeat",
+            heartbeat_period = 1.0, # sec
             target_timeout_seconds = 1e-1,
             earth_radius = 6_378_137.0, # in meters
             pose_estimation_threshold = 0.80,
             device = "cuda" if torch.cuda.is_available() else "cpu",
             classification_threshold = 0.90,
             min_occurrences = 2,
-            no_servers = True, # previous NO_UNDERLYING_IMPL, change this to False during integration with UPC (!)
+            no_servers = False, # previous NO_UNDERLYING_IMPL, change this to False during integration with UPC (!)
             server_timeout = 1.0,
             slop = 1, # small slop may prevent execution (!)
             max_classification_rate = 2, # fps

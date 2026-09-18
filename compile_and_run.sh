@@ -10,7 +10,7 @@ echo "Setup UPC interface ..."
 source /home/triffid/upc_ws/install/setup.bash
 
 echo "Building gesture_recognition package ..."
-colcon build --packages-select gesture_recognition
+colcon build --packages-select gesture_recognition --cmake-args -DCMAKE_BUILD_TYPE=Release
 
 echo "Installing package ..."
 source ./install/local_setup.bash

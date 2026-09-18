@@ -796,7 +796,7 @@ class Gesture_Commander_Coordinator(Node):
         self.get_logger().warning(f"[{self.__log_counter}] {text}")
 
     def __heartbeat_callback(self):
-        self.__heartbeat_publisher.publish("GESTURE COMMANDER IS UP AND RUNNING")
+        self.__heartbeat_publisher.publish(String(data="GESTURE COMMANDER IS UP AND RUNNING"))
 
     def __main_callback(self, color_image:Image, depth_image:Image, intrinsics:CameraInfo, global_position:NavSatFix, heading:Float32, status:String):
         '''
@@ -939,8 +939,8 @@ def main():
             rgb_topic = "/b2/camera_front_435i/realsense_front_435i/color/image_raw"+TEST,
             camera_info = "/b2/camera_front_435i/realsense_front_435i/color/camera_info"+TEST,
             status_topic = "/b2/nav_status"+TEST,
-            output_topic = "/gesture_command",
-            heartbeat_topic = "/gesture_commander_heartbeat",
+            output_topic = "/b2/gesture_command",
+            heartbeat_topic = "/b2/gesture_commander_heartbeat",
             heartbeat_period = 1.0, # sec
             target_timeout_seconds = 1e-1,
             earth_radius = 6_378_137.0, # in meters

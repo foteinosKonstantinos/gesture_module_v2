@@ -10,7 +10,6 @@ import numpy as np
 from rclpy.executors import ExternalShutdownException
 import math
 import abc
-import json
 
 EARTH_RADIUS = 6378137.0 # in meters
 PATH = "/home/triffid/hua_ws/gesture_module_v2"
@@ -450,7 +449,7 @@ class Producer(Node):
         self.__heading_publisher.publish(msg)
 
         msg = String()
-        msg.data = json.dumps({"data":"FREEZE"})
+        msg.data = "FREEZE"
         self.__status_publisher.publish(msg)
 
         self.get_logger().info(f"Publishing {color_path} at x={x_mm}, y={y_mm}, omega={omega}")

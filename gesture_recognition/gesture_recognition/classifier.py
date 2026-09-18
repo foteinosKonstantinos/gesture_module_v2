@@ -874,7 +874,7 @@ class Gesture_Commander_Coordinator(Node):
                 self.warn(f"Ignoring {prediction['class']}")
                 return # REMOVE-FOR-LOCALIZATION-TESTS (comment with #)
 
-            status_data = json.loads(status.data)["data"]
+            status_data = status.data # json.loads(status.data)["data"] => "Expecting value: line 1 column 1 (char 0)"
             self.info(f"\033[1;102mACTION ACCEPTED FOR {prediction['class']}\033[0;0m - robot state: [{status_data}]")
 
             # Derection position

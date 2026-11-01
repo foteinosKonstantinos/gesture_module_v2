@@ -13,6 +13,7 @@ import abc
 
 EARTH_RADIUS = 6378137.0 # in meters
 PATH = "/home/triffid/hua_ws/gesture_module_v2"
+# PATH = "/home/konstantinosf/Projects/gesture_module_v2/gesture_module_v2"
 FPS = 1.0
 
 def euler_to_quaternion(roll, pitch, yaw):

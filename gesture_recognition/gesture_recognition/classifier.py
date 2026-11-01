@@ -491,29 +491,31 @@ class EfficientNetB0_Wrapper(Classifier):
 class YOLO_Classification_Wrapper(Classifier):
     def __init__(self, path:str, config:Configuration):
         self.__device = config.device
-        self.__classes = {
-            "0": "fetch-a-gas-mask",
-            "1": "come-to-me",
-            "2": "operation-finished",
-            "3": "freeze",
-            "4": "emergency-situation",
-            "5": "i-need-help",
-            "6": "evacuate-the-area",
-            "7": "i-lost-connection",
-            "8": "fetch-a-shovel",
-            "9": "fetch-an-axe",
-            "10": "unfreeze",
-            "11": "move-away-from-here",
-            "12": "stop"
-        }
+        # self.__classes = {
+        #     "0": "fetch-a-gas-mask",
+        #     "1": "come-to-me",
+        #     "2": "operation-finished",
+        #     "3": "freeze",
+        #     "4": "emergency-situation",
+        #     "5": "i-need-help",
+        #     "6": "evacuate-the-area",
+        #     "7": "i-lost-connection",
+        #     "8": "fetch-a-shovel",
+        #     "9": "fetch-an-axe",
+        #     "10": "unfreeze",
+        #     "11": "move-away-from-here",
+        #     "12": "stop"
+        # }
         assert os.path.isfile(path), f"{path} is not a valid path"
         self.__model = YOLO(path).to(self.__device)
+        print(self.__model.names)
     # def load_weights(self, path):
     #     raise NotImplementedError()
     def classify(self, image): # array or path
         result = self.__model(image, verbose=False)[0]
         confidence = result.probs.top1conf.item()
-        pred_class = self.__classes[result.names[result.probs.top1]]
+        # pred_class = self.__classes[result.names[result.probs.top1]]
+        pred_class = result.names[result.probs.top1]
         return {
             "class": pred_class,
             "confidence": confidence
@@ -968,7 +970,7 @@ def main():
         rclpy.init()
         rclpy.spin(node=Gesture_Commander_Coordinator(
             #classifier = EfficientNetB0_Wrapper(config=config,path="/home/triffid/hua_ws/gesture_module_v2/gesture_recognition/gesture_recognition/efficientnetb0_color_pretrained_ext.pt"),
-            classifier = YOLO_Classification_Wrapper(config=config,path="/home/triffid/hua_ws/gesture_module_v2/gesture_recognition/gesture_recognition/yolo26s-cls-FR-GESTURE.pt"),
+            classifier = YOLO_Classification_Wrapper(config=config,path="/home/triffid/hua_ws/gesture_module_v2/gesture_recognition/gesture_recognition/new-yolo26s-cls-FR-GESTURE-PUI.pt"),
             pose_estimator = YOLO_Pose_Wrapper(model="yolo26n-pose.pt", config=config), # DO NOT change the "model" parameter
             # perceptron = DEMO_Perceptron(),
             perceptron = RealSense_Perceptron(),

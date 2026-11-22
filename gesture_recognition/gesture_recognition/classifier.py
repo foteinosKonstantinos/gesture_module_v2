@@ -31,6 +31,7 @@ import time
 import abc
 import os
 from geographiclib.geodesic import Geodesic
+import statistics
 from rclpy.qos import qos_profile_sensor_data
 
 # Configuration-- -------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -318,6 +319,28 @@ class Pose_Estimator(abc.ABC):
     @abc.abstractmethod
     def get_single_person(all_keypoints:list[dict]):pass
     @staticmethod
+    def crop_and_pad(img, bbox, resolution):
+        '''bbox = result.boxes.xyxy.round().cpu().numpy().astype(int).tolist()[idx]'''
+        img:np.ndarray = img[bbox[1]:bbox[3],bbox[0]:bbox[2]]
+        height = img.shape[0]
+        width = img.shape[1]
+        if height == width:
+            return cv2.resize(img, dsize=(resolution, resolution))
+        elif width > height:
+            resized = cv2.resize(img, dsize=(resolution, int(resolution/width*height))) # width x height
+            temp = np.zeros((resolution, resolution, 3), dtype=np.uint8)
+            ylow = resolution//2 - resized.shape[0]//2
+            yhigh = resolution//2 + resized.shape[0]//2 + resized.shape[0]%2
+            temp[ylow:yhigh,:,:] = resized
+            return temp
+        else:
+            resized = cv2.resize(img, dsize=(int(resolution/height*width), resolution)) # width x height
+            temp = np.zeros((resolution, resolution, 3), dtype=np.uint8)
+            xlow = resolution//2 - resized.shape[1]//2
+            xhigh = resolution//2 + resized.shape[1]//2 + resized.shape[1]%2
+            temp[:,xlow:xhigh,:] = resized
+            return temp
+    @staticmethod
     def accept(confidence, config:Configuration):
         return confidence >= config.pose_estimation_threshold
 
@@ -345,7 +368,7 @@ class YOLO_Pose_Wrapper(Pose_Estimator):
             "Left Ankle",
             "Right Ankle"
         ]
-    def detect_keypoints(self, color, depth=None) -> list[dict]:
+    def detect_keypoints(self, color, depth=None):
         '''
         Parameters:
             color:      numpy array with dimensions height x width x 3 (H x W x 3)
@@ -358,13 +381,13 @@ class YOLO_Pose_Wrapper(Pose_Estimator):
                 },
                 for every detected person
                 ...
-            ]
+            ] and list of BBs (xyxy format)
             Depth is zero if not available
         '''
         all_result = self.__pose_estimator(color, verbose=False)[0]
         result = all_result.keypoints.data
         if self.config.debugging and len(result)>0:
-            all_result.save("vis.png")
+            all_result.save("pose_estimation.jpg")
         keypoints = []
         for person in range(len(result)):
             keypoints.append(dict({}))
@@ -379,19 +402,9 @@ class YOLO_Pose_Wrapper(Pose_Estimator):
                 else:
                     uvcd.append(0)
                 keypoints[-1][self.__names[i]] = uvcd
-        return keypoints
+        return keypoints, all_result.boxes.xyxy.round().cpu().numpy().astype(int).tolist()
     @staticmethod
     def aggregate(keypoints:dict) -> float:
-        '''
-        Parameters:
-            keypoints:  Keypoints of a single person in the format of detect_keypoints output
-            Only the left & right shoulder are considered
-        Returns:
-            d:      average depth of the keypoints (in the given depth measurement units)
-            u:      average u (in pixels)
-            v:      average v (in pixels)
-            c:      average confidence ([0,1])
-        '''
         # d = u = v = c = total = 0
         # for keypoint_name in keypoints.keys():
         #     if keypoints[keypoint_name][3] == 0:
@@ -406,15 +419,24 @@ class YOLO_Pose_Wrapper(Pose_Estimator):
         # v /= total
         # c /= total
         # return d, u, v, c
-        ls = keypoints["Left Shoulder"]
-        rs = keypoints["Right Shoulder"]
-        if ls[3] !=0 and rs[3] !=0:
-            u = (ls[0]+rs[0])/2
-            v = (ls[1]+rs[1])/2
-            c = (ls[2]+rs[2])/2
-            d = (ls[3]+rs[3])/2
-            return d, u, v, c
-        return None
+        # ls = keypoints["Left Shoulder"]
+        # rs = keypoints["Right Shoulder"]
+        # if ls[3] !=0 and rs[3] !=0:
+        #     u = (ls[0]+rs[0])/2
+        #     v = (ls[1]+rs[1])/2
+        #     c = (ls[2]+rs[2])/2
+        #     d = (ls[3]+rs[3])/2
+        #     return d, u, v, c
+        # return None
+        us = [keypoints[keypoint_name][0] for keypoint_name in keypoints.keys()]
+        vs = [keypoints[keypoint_name][1] for keypoint_name in keypoints.keys()]
+        cs = [keypoints[keypoint_name][2] for keypoint_name in keypoints.keys()]
+        ds = [keypoints[keypoint_name][3] for keypoint_name in keypoints.keys()]
+        u = statistics.median(us)
+        v = statistics.median(vs)
+        c = statistics.median(cs)
+        d = statistics.median(ds)
+        return d, u, v, c
     @staticmethod
     def get_single_person(all_keypoints:list[dict]): # choose the one in shortest distance
         '''Returns None if cannot infer human distance or no humans are present'''
@@ -443,12 +465,15 @@ class Classifier(abc.ABC):
     # def load_weights(self, path:str):pass
     @abc.abstractmethod
     def classify(self, image):pass # 8-bit RGB image (H x W x 3)
+    @abc.abstractmethod
+    def get_input_resolution(self) -> int:pass # only squared images
     @staticmethod
     def accept(confidence, config:Configuration):
         return confidence >= config.classification_threshold
 
 class EfficientNetB0_Wrapper(Classifier):
     def __init__(self,  config:Configuration, path:str|None=None):
+        raise Exception("EfficientNetB0 doesn't support the new uknown class and has been trained on full-resolution images, not cropped!!")
         self.__device = config.device
         self.__classes = [
             "fetch-a-gas-mask", # G0
@@ -487,28 +512,17 @@ class EfficientNetB0_Wrapper(Classifier):
             "class": pred_class,
             "confidence": confidence
         }
+    def get_input_resolution(self):
+        return -1
 
 class YOLO_Classification_Wrapper(Classifier):
-    def __init__(self, path:str, config:Configuration):
+    def __init__(self, path:str, resolution:int, config:Configuration):
         self.__device = config.device
-        # self.__classes = {
-        #     "0": "fetch-a-gas-mask",
-        #     "1": "come-to-me",
-        #     "2": "operation-finished",
-        #     "3": "freeze",
-        #     "4": "emergency-situation",
-        #     "5": "i-need-help",
-        #     "6": "evacuate-the-area",
-        #     "7": "i-lost-connection",
-        #     "8": "fetch-a-shovel",
-        #     "9": "fetch-an-axe",
-        #     "10": "unfreeze",
-        #     "11": "move-away-from-here",
-        #     "12": "stop"
-        # }
         assert os.path.isfile(path), f"{path} is not a valid path"
         self.__model = YOLO(path).to(self.__device)
-        print(self.__model.names)
+        self.__resolution = resolution
+        if config.debugging:
+            print(self.__model.names)
     # def load_weights(self, path):
     #     raise NotImplementedError()
     def classify(self, image): # array or path
@@ -520,6 +534,8 @@ class YOLO_Classification_Wrapper(Classifier):
             "class": pred_class,
             "confidence": confidence
         }
+    def get_input_resolution(self):
+        return self.__resolution
 
 # Filter ----------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
@@ -593,6 +609,8 @@ class Action_Caller:
                 # self.__node.info("\033[1;102mMESSAGE WAS SENT\033[0;0m")
     def trigger_action(self, gesture_command:str, **args): # args in mm        
         # https://asantamarianavarro.gitlab.io/code/projects/triffid/aurops/sections/triffid/ugv_planning.html
+        gesture_command = gesture_command.lower()
+        self.__node.warn("instead of unfreeze, the old ok-to-go name is used")
         if gesture_command == "come-to-me":
             msg = NavigateTo.Goal()
             msg.goal_pose = Pose() # map frame
@@ -606,7 +624,7 @@ class Action_Caller:
             msg.timeout = -1.0
             self.__call_server(self.__navigation, msg)
         
-        elif gesture_command == "unfreeze": # Previously named "ok-to-go", unfreeze
+        elif gesture_command == "ok-to-go": # Previously named "ok-to-go", unfreeze
             msg = Trigger.Goal()
             msg.activate = False
             if args["status"] == "FREEZE":
@@ -781,6 +799,7 @@ class Gesture_Commander_Coordinator(Node):
         self.__detection_id = 0
         self.config = config
         self.info(f"\033[1;102mRunning on {self.config.device}\033[0;0m")
+        self.info("Images are cropped and padded.")
         if self.config.debugging: # For localization tests only
             self.__trajectory = {
                 "detection position (xy)": [],
@@ -838,7 +857,7 @@ class Gesture_Commander_Coordinator(Node):
             color_array, depth_array = self.__perceptron.get_arrays(color_image=color_image, depth_image=depth_image)
 
             # Human(s) pose estimation
-            all_keypoints = self.__pose_estimator.detect_keypoints(color=color_array, depth=depth_array)
+            all_keypoints, all_bboxes = self.__pose_estimator.detect_keypoints(color=color_array, depth=depth_array)
             self.info(f"{len(all_keypoints)} detected humans")
             # Filter: Are there any humans?
             if len(all_keypoints) == 0:
@@ -851,22 +870,31 @@ class Gesture_Commander_Coordinator(Node):
             #     self.warn(f"Low confidence in pose estimation")
             #     return
             # Filter: Is human depth available?
-            if argmin_u is None:
+            if argmin_idx is None:
                 self.__command_filter.restart()
                 self.warn(f"Cannot infer human distance")
                 return # REMOVE-FOR-LOCALIZATION-TESTS (comment with #)
-            # # Filter: Is human sufficiently near?
-            # if min_depth >= self.config.depth_max_threshold or min_depth =< self.config.depth_min_threshold:
+            # # Filter: Is human in a reasonable distance?
+            # if min_depth >= self.config.depth_max_threshold or min_depth <= self.config.depth_min_threshold:
             #     self.__command_filter.restart()
             #     self.warn(f"Distance from camera ({min_depth}) exceeds threshold (>= {self.config.depth_max_threshold} or =< {self.config.depth_min_threshold} (mm)")
             #     return
 
-            prediction = self.__classifier.classify(color_array)
-            self.info(f"Class: {prediction['class']} Confidence: {prediction['confidence']:.2f}")
+            preprocessed_img = self.__pose_estimator.crop_and_pad(img=color_array, bbox=all_bboxes[argmin_idx], resolution=self.__classifier.get_input_resolution())
+            prediction = self.__classifier.classify(preprocessed_img)
+            if self.config.debugging:
+                # mod 1000 to avoid filling the disk
+                cv2.imwrite(f"classified_frame_{self.__log_counter%1000}.jpg", cv2.putText(preprocessed_img, f"{prediction['class']} {prediction['confidence']:.2f} {min_depth:.0f}", (2,10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255)))
+            self.info(f"Class: {prediction['class']} Confidence: {prediction['confidence']:.2f} Depth: {min_depth}")
             # Filter: Is the classification confident enough?
             if not self.__classifier.accept(confidence=prediction['confidence'], config=self.config):
                 self.__command_filter.restart()
                 self.warn(f"Low confidence ({prediction['confidence']:.2f} < {self.config.classification_threshold}).")
+                return # REMOVE-FOR-LOCALIZATION-TESTS (comment with #)
+            # Filter: Is the class different from "unknown"?
+            if prediction["class"].lower() == "unknown":
+                self.__command_filter.restart()
+                self.warn("Ignoring uknown gesture.")
                 return # REMOVE-FOR-LOCALIZATION-TESTS (comment with #)
 
             self.__command_filter.register_command(gesture_command=prediction['class'], confidence=prediction['confidence'])
@@ -895,7 +923,7 @@ class Gesture_Commander_Coordinator(Node):
                     # if self.__log_counter % 10 == 0:
                     print(self.__trajectory)
 
-            # REMOVE-FOR-LOCALIZATION-TESTS (comment with #)
+            # REMOVE FOR LOCALIZATION TESTS (comment with #)
             self.__action_caller.trigger_action(gesture_command=prediction['class'], x=abs_xyz[0], y=abs_xyz[1], z=abs_xyz[2], q0=0, q1=0, q2=0, q3=1, status=status_data)
             self.__command_publisher.publish(String(data=json.dumps({
                 "type": "FeatureCollection",
@@ -952,7 +980,7 @@ def main():
             min_occurrences = 2,
             no_servers = False, # previous NO_UNDERLYING_IMPL, change this to False during integration with UPC (!)
             server_timeout = 1.0,
-            slop = 1, # small slop may prevent execution (!)
+            slop = 2, # small slop may prevent execution (!)
             max_classification_rate = 2, # fps
             depth_max_threshold = 100_000, # mm
             depth_min_threshold = 1_000, # mm
@@ -969,9 +997,9 @@ def main():
         )
         rclpy.init()
         rclpy.spin(node=Gesture_Commander_Coordinator(
-            #classifier = EfficientNetB0_Wrapper(config=config,path="/home/triffid/hua_ws/gesture_module_v2/gesture_recognition/gesture_recognition/efficientnetb0_color_pretrained_ext.pt"),
-            classifier = YOLO_Classification_Wrapper(config=config,path="/home/triffid/hua_ws/gesture_module_v2/gesture_recognition/gesture_recognition/new-yolo26s-cls-FR-GESTURE-PUI.pt"),
-            pose_estimator = YOLO_Pose_Wrapper(model="yolo26n-pose.pt", config=config), # DO NOT change the "model" parameter
+            # classifier = YOLO_Classification_Wrapper(config=config,resolution=224,path="/home/triffid/hua_ws/gesture_module_v2/gesture_recognition/gesture_recognition/DET-PAD-UNK-ULT-SMALL-04.pt"),
+            classifier = YOLO_Classification_Wrapper(config=config,resolution=224,path="/home/konstantinosf/Projects/gesture_module_v2/gesture_module_v2/gesture_recognition/gesture_recognition/DET-PAD-UNK-ULT-SMALL-04.pt"),
+            pose_estimator = YOLO_Pose_Wrapper(model="yolo26s-pose.pt", config=config), # DO NOT change the "model" parameter
             # perceptron = DEMO_Perceptron(),
             perceptron = RealSense_Perceptron(),
             config = config,

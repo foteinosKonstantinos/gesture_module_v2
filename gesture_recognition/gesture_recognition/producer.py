@@ -451,7 +451,7 @@ class Producer(Node):
         self.__heading_publisher.publish(msg)
 
         msg = String()
-        msg.data = "FREEZE"
+        msg.data = "dokimi"
         self.__status_publisher.publish(msg)
 
         self.get_logger().info(f"Publishing {color_path} at x={x_mm}, y={y_mm}, omega={omega}")
@@ -461,9 +461,9 @@ class Producer(Node):
 
 def main():
     try:
-        test = Localization_Line_Test()
-        print(test.generate_full_trajectory(max_timestep=100))
-        # test = Interactive_Test()
+        # test = Localization_Line_Test()
+        # print(test.generate_full_trajectory(max_timestep=100))
+        test = Interactive_Test()
         rclpy.init()
         rclpy.spin(node=Producer(test_scenario=test,fps=FPS))
     except (ExternalShutdownException, KeyboardInterrupt) as e:

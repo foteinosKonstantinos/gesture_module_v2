@@ -855,6 +855,7 @@ class Gesture_Commander_Coordinator(Node):
             self.__log_counter += 1
 
             color_array, depth_array = self.__perceptron.get_arrays(color_image=color_image, depth_image=depth_image)
+            color_array = cv2.cvtColor(src=color_array, code=cv2.COLOR_BGR2RGB) # TODO!!
 
             # Human(s) pose estimation
             all_keypoints, all_bboxes = self.__pose_estimator.detect_keypoints(color=color_array, depth=depth_array)
@@ -884,7 +885,8 @@ class Gesture_Commander_Coordinator(Node):
             prediction = self.__classifier.classify(preprocessed_img)
             if self.config.debugging:
                 # mod 1000 to avoid filling the disk
-                cv2.imwrite(f"classified_frame_{self.__log_counter%1000}.jpg", cv2.putText(preprocessed_img, f"{prediction['class']} {prediction['confidence']:.2f} {min_depth:.0f}", (2,10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255)))
+                with_text = cv2.putText(preprocessed_img, f"{prediction['class']} {prediction['confidence']:.2f} {min_depth:.0f}", (2,10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255))
+                cv2.imwrite(f"classified_frame_{self.__log_counter%1000}.jpg", with_text)
             self.info(f"Class: {prediction['class']} Confidence: {prediction['confidence']:.2f} Depth: {min_depth}")
             # Filter: Is the classification confident enough?
             if not self.__classifier.accept(confidence=prediction['confidence'], config=self.config):
@@ -976,11 +978,11 @@ def main():
             earth_radius = 6_378_137.0, # in meters
             pose_estimation_threshold = 0.80,
             device = "cuda" if torch.cuda.is_available() else "cpu",
-            classification_threshold = 0.90,
+            classification_threshold = 0.99,
             min_occurrences = 2,
             no_servers = False, # previous NO_UNDERLYING_IMPL, change this to False during integration with UPC (!)
             server_timeout = 1.0,
-            slop = 2, # small slop may prevent execution (!)
+            slop = 1, # small slop (in sec) may prevent execution (!)
             max_classification_rate = 2, # fps
             depth_max_threshold = 100_000, # mm
             depth_min_threshold = 1_000, # mm

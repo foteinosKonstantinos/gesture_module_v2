@@ -38,6 +38,8 @@ from rclpy.qos import qos_profile_sensor_data
 
 class Configuration:
     def __init__(self,
+            weights_pose_estimator:str,
+            weights_classifier:str,
             debugging:bool,
             nav_fix_topic:str,
             heading_topic:str,
@@ -53,6 +55,7 @@ class Configuration:
             pose_estimation_threshold:float,
             device:str,
             classification_threshold:float,
+            classification_resolution:int,
             min_occurrences:str,
             no_servers:bool,
             server_timeout:float,
@@ -70,6 +73,8 @@ class Configuration:
             trigger_navigation:str,
             min_sec_between_commands:float
             ):
+        self.weights_pose_estimator = weights_pose_estimator
+        self.weights_classifier = weights_classifier
         self.debugging = debugging
         self.nav_fix_topic = nav_fix_topic
         self.heading_topic = heading_topic
@@ -85,6 +90,7 @@ class Configuration:
         self.pose_estimation_threshold = pose_estimation_threshold
         self.device = device
         self.classification_threshold = classification_threshold
+        self.classification_resolution = classification_resolution
         self.min_occurrences = min_occurrences
         self.no_servers = no_servers
         self.server_timeout = server_timeout
@@ -319,35 +325,13 @@ class Pose_Estimator(abc.ABC):
     @abc.abstractmethod
     def get_single_person(all_keypoints:list[dict]):pass
     @staticmethod
-    def crop_and_pad(img, bbox, resolution):
-        '''bbox = result.boxes.xyxy.round().cpu().numpy().astype(int).tolist()[idx]'''
-        img:np.ndarray = img[bbox[1]:bbox[3],bbox[0]:bbox[2]]
-        height = img.shape[0]
-        width = img.shape[1]
-        if height == width:
-            return cv2.resize(img, dsize=(resolution, resolution))
-        elif width > height:
-            resized = cv2.resize(img, dsize=(resolution, int(resolution/width*height))) # width x height
-            temp = np.zeros((resolution, resolution, 3), dtype=np.uint8)
-            ylow = resolution//2 - resized.shape[0]//2
-            yhigh = resolution//2 + resized.shape[0]//2 + resized.shape[0]%2
-            temp[ylow:yhigh,:,:] = resized
-            return temp
-        else:
-            resized = cv2.resize(img, dsize=(int(resolution/height*width), resolution)) # width x height
-            temp = np.zeros((resolution, resolution, 3), dtype=np.uint8)
-            xlow = resolution//2 - resized.shape[1]//2
-            xhigh = resolution//2 + resized.shape[1]//2 + resized.shape[1]%2
-            temp[:,xlow:xhigh,:] = resized
-            return temp
-    @staticmethod
     def accept(confidence, config:Configuration):
         return confidence >= config.pose_estimation_threshold
 
 class YOLO_Pose_Wrapper(Pose_Estimator):
-    def __init__(self, model:str, config:Configuration):
+    def __init__(self, config:Configuration):
         self.__device = config.device
-        self.__pose_estimator = YOLO(model).to(self.__device)
+        self.__pose_estimator = YOLO(config.weights_pose_estimator).to(self.__device)
         self.config = config
         self.__names = [
             "Nose",
@@ -393,6 +377,8 @@ class YOLO_Pose_Wrapper(Pose_Estimator):
             keypoints.append(dict({}))
             for i in range(len(self.__names)):
                 uvcd:list = result[person][i][[0,1]].cpu().numpy().astype(int).tolist()
+                # uvcd[0] = max(min(uvcd[0], depth.shape[1]), 0) # width
+                # uvcd[1] = max(min(uvcd[1], depth.shape[0]), 0) # height
                 uvcd.append(result[person][i][2].item())
                 if depth is not None:
                     try:
@@ -404,7 +390,7 @@ class YOLO_Pose_Wrapper(Pose_Estimator):
                 keypoints[-1][self.__names[i]] = uvcd
         return keypoints, all_result.boxes.xyxy.round().cpu().numpy().astype(int).tolist()
     @staticmethod
-    def aggregate(keypoints:dict) -> float:
+    def aggregate(keypoints:dict, min_confidence:float=0.5) -> float:
         # d = u = v = c = total = 0
         # for keypoint_name in keypoints.keys():
         #     if keypoints[keypoint_name][3] == 0:
@@ -428,15 +414,27 @@ class YOLO_Pose_Wrapper(Pose_Estimator):
         #     d = (ls[3]+rs[3])/2
         #     return d, u, v, c
         # return None
-        us = [keypoints[keypoint_name][0] for keypoint_name in keypoints.keys()]
-        vs = [keypoints[keypoint_name][1] for keypoint_name in keypoints.keys()]
-        cs = [keypoints[keypoint_name][2] for keypoint_name in keypoints.keys()]
-        ds = [keypoints[keypoint_name][3] for keypoint_name in keypoints.keys()]
-        u = statistics.median(us)
-        v = statistics.median(vs)
-        c = statistics.median(cs)
-        d = statistics.median(ds)
-        return d, u, v, c
+        us = []
+        vs = []
+        cs = []
+        ds = []
+        for keypoint_name in keypoints.keys():
+            u = keypoints[keypoint_name][0]
+            v = keypoints[keypoint_name][1]
+            c = keypoints[keypoint_name][2]
+            d = keypoints[keypoint_name][3]
+            if c >= min_confidence and d>0:
+                us.append(u)
+                vs.append(v)
+                cs.append(c)
+                ds.append(d)
+        if len(us)==0 or len(vs)==0 or len(cs)==0 or len(ds)==0:
+            return None
+        au = statistics.median(us)
+        av = statistics.median(vs)
+        ac = statistics.median(cs)
+        ad = statistics.median(ds)
+        return ad, au, av, ac
     @staticmethod
     def get_single_person(all_keypoints:list[dict]): # choose the one in shortest distance
         '''Returns None if cannot infer human distance or no humans are present'''
@@ -464,7 +462,7 @@ class Classifier(abc.ABC):
     # @abc.abstractmethod
     # def load_weights(self, path:str):pass
     @abc.abstractmethod
-    def classify(self, image):pass # 8-bit RGB image (H x W x 3)
+    def classify(self, image, bbox):pass # 8-bit RGB image (H x W x 3)
     @abc.abstractmethod
     def get_input_resolution(self) -> int:pass # only squared images
     @staticmethod
@@ -472,8 +470,7 @@ class Classifier(abc.ABC):
         return confidence >= config.classification_threshold
 
 class EfficientNetB0_Wrapper(Classifier):
-    def __init__(self,  config:Configuration, path:str|None=None):
-        raise Exception("EfficientNetB0 doesn't support the new uknown class and has been trained on full-resolution images, not cropped!!")
+    def __init__(self,  config:Configuration):
         self.__device = config.device
         self.__classes = [
             "fetch-a-gas-mask", # G0
@@ -492,6 +489,7 @@ class EfficientNetB0_Wrapper(Classifier):
         ]
         self.__model = torchvision.models.efficientnet_b0(num_classes=len(self.__classes))
         self.__model = self.__model.to(self.__device)
+        path = config.weights_classifier
         assert path is not None, "path should be a valid path (str)"
         # if path is not None:
         #     self.load_weights(path)
@@ -501,7 +499,7 @@ class EfficientNetB0_Wrapper(Classifier):
     def load_weights(self, path):
         assert os.path.isfile(path), f"{path} is not a valid path"
         self.__model.load_state_dict(torch.load(path,map_location=torch.device(self.__device)))
-    def classify(self, image): # array
+    def classify(self, image, bbox): # array
         self.__model.eval()
         # probabilities = softmax(self.__model(self.__resize((self.__to_tensor(image)/255).unsqueeze(dim=0)).to(self.__device))[0], dim=0).detach().cpu().numpy()
         probabilities = softmax(self.__model(self.__resize((self.__to_tensor(image)).unsqueeze(dim=0)).to(self.__device))[0], dim=0).detach().cpu().numpy()
@@ -511,21 +509,22 @@ class EfficientNetB0_Wrapper(Classifier):
         return {
             "class": pred_class,
             "confidence": confidence
-        }
+        }, None
     def get_input_resolution(self):
         return -1
 
 class YOLO_Classification_Wrapper(Classifier):
-    def __init__(self, path:str, resolution:int, config:Configuration):
+    def __init__(self, config:Configuration):
         self.__device = config.device
+        path = config.weights_classifier
         assert os.path.isfile(path), f"{path} is not a valid path"
         self.__model = YOLO(path).to(self.__device)
-        self.__resolution = resolution
+        self.__resolution = config.classification_resolution
         if config.debugging:
             print(self.__model.names)
     # def load_weights(self, path):
     #     raise NotImplementedError()
-    def classify(self, image): # array or path
+    def classify(self, image, bbox): # array or path
         result = self.__model(image, verbose=False)[0]
         confidence = result.probs.top1conf.item()
         # pred_class = self.__classes[result.names[result.probs.top1]]
@@ -533,7 +532,53 @@ class YOLO_Classification_Wrapper(Classifier):
         return {
             "class": pred_class,
             "confidence": confidence
-        }
+        }, None
+    def get_input_resolution(self):
+        return self.__resolution
+
+class Cropped_YOLO_Classification_Wrapper(Classifier):
+    def __init__(self, config:Configuration):
+            self.__device = config.device
+            path = config.weights_classifier
+            assert os.path.isfile(path), f"{path} is not a valid path"
+            self.__model = YOLO(path).to(self.__device)
+            self.__resolution = config.classification_resolution
+            if config.debugging:
+                print(self.__model.names)
+    # def load_weights(self, path):
+    #     raise NotImplementedError()
+    @staticmethod
+    def crop_and_pad(img, bbox, resolution):
+        '''bbox = result.boxes.xyxy.round().cpu().numpy().astype(int).tolist()[idx]'''
+        img:np.ndarray = img[bbox[1]:bbox[3],bbox[0]:bbox[2]]
+        height = img.shape[0]
+        width = img.shape[1]
+        if height == width:
+            return cv2.resize(img, dsize=(resolution, resolution))
+        elif width > height:
+            resized = cv2.resize(img, dsize=(resolution, int(resolution/width*height))) # width x height
+            temp = np.zeros((resolution, resolution, 3), dtype=np.uint8)
+            ylow = resolution//2 - resized.shape[0]//2
+            yhigh = resolution//2 + resized.shape[0]//2 + resized.shape[0]%2
+            temp[ylow:yhigh,:,:] = resized
+            return temp
+        else:
+            resized = cv2.resize(img, dsize=(int(resolution/height*width), resolution)) # width x height
+            temp = np.zeros((resolution, resolution, 3), dtype=np.uint8)
+            xlow = resolution//2 - resized.shape[1]//2
+            xhigh = resolution//2 + resized.shape[1]//2 + resized.shape[1]%2
+            temp[:,xlow:xhigh,:] = resized
+            return temp
+    def classify(self, image, bbox): # array or path
+        preprocessed_img = self.crop_and_pad(img=image, bbox=bbox, resolution=self.get_input_resolution())
+        result = self.__model(preprocessed_img, verbose=False)[0]
+        confidence = result.probs.top1conf.item()
+        # pred_class = self.__classes[result.names[result.probs.top1]]
+        pred_class = result.names[result.probs.top1]
+        return {
+            "class": pred_class.lower(),
+            "confidence": confidence
+        }, preprocessed_img
     def get_input_resolution(self):
         return self.__resolution
 
@@ -550,6 +595,8 @@ class Command_Filter:
         if self.__current is None or self.__current != gesture_command:
             self.__current = gesture_command
             self.__counter = 1
+            # self.__last_time_triggered = -math.inf
+            self.__not_triggered_due_to_time = False # the action was not accepted, due to the "inter-command" time interval constraint
         # current command = given
         else:
             self.__counter += 1
@@ -565,7 +612,7 @@ class Command_Filter:
         # it occured many times succesively
         elif self.__counter == int(self.__min_occurs):
             if self.config.debugging: self.__node.info(f"{self.__counter} = {self.__min_occurs} for {self.__current}")
-            now = time.time()
+            now = time.monotonic()
             if now - self.__last_time_triggered >= self.config.min_sec_between_commands:
                 self.__last_time_triggered = now
                 return True
@@ -576,12 +623,16 @@ class Command_Filter:
         # the action has already been called
         else:
             if self.config.debugging: self.__node.info(f"{self.__counter} > {self.__min_occurs} for {self.__current}")
-            now = time.time()
-            if self.__not_triggered_due_to_time and (now - self.__last_time_triggered >= self.config.min_sec_between_commands):
-                self.__not_triggered_due_to_time = False
-                self.__last_time_triggered = now
-                if self.config.debugging: self.__node.info("Action accepted (was not accepted earlier due to constraint on time between triggers)")
-                return True
+            now = time.monotonic()
+            if self.__not_triggered_due_to_time:
+                if now - self.__last_time_triggered >= self.config.min_sec_between_commands:
+                    self.__not_triggered_due_to_time = False
+                    self.__last_time_triggered = now
+                    if self.config.debugging: self.__node.info("Action accepted (was not accepted earlier due to constraint on time between triggers)")
+                    return True
+                else:
+                    self.__node.warn(f"Waiting to pass the time filter ({now - self.__last_time_triggered} < {self.config.min_sec_between_commands} (sec))")
+                    return False
             else:
                 return False
 
@@ -607,10 +658,10 @@ class Action_Caller:
             else:
                 server.send_goal_async(msg)
                 # self.__node.info("\033[1;102mMESSAGE WAS SENT\033[0;0m")
-    def trigger_action(self, gesture_command:str, **args): # args in mm        
+    def trigger_action(self, gesture_command:str, **args): # args in mm
+        '''gesture_command:str must be lowercase'''
         # https://asantamarianavarro.gitlab.io/code/projects/triffid/aurops/sections/triffid/ugv_planning.html
-        gesture_command = gesture_command.lower()
-        self.__node.warn("instead of unfreeze, the old ok-to-go name is used")
+        # gesture_command = gesture_command.lower()
         if gesture_command == "come-to-me":
             msg = NavigateTo.Goal()
             msg.goal_pose = Pose() # map frame
@@ -624,9 +675,10 @@ class Action_Caller:
             msg.timeout = -1.0
             self.__call_server(self.__navigation, msg)
         
-        elif gesture_command == "ok-to-go": # Previously named "ok-to-go", unfreeze
+        elif gesture_command == "ok-to-go" or gesture_command == "unfreeze": # Previously named "ok-to-go", unfreeze
             msg = Trigger.Goal()
             msg.activate = False
+            msg.timeout = -1.0
             if args["status"] == "FREEZE":
                 self.__call_server(self.__freeze, msg)
             elif args["status"] == "EMERGENCY":
@@ -649,16 +701,19 @@ class Action_Caller:
         elif gesture_command == "freeze":
             msg = Trigger.Goal()
             msg.activate = True
+            msg.timeout = -1.0
             self.__call_server(self.__freeze, msg)
         
         elif gesture_command == "stop":
             msg = Trigger.Goal()
             msg.activate = True
+            msg.timeout = -1.0
             self.__call_server(self.__stop, msg)
 
         elif gesture_command == "emergency-situation":
             msg = Trigger.Goal()
             msg.activate = True
+            msg.timeout = -1.0
             self.__call_server(self.__emergency, msg)
 
         elif gesture_command == "i-need-help":
@@ -741,7 +796,8 @@ class RealSense_Perceptron(Perceptron):
         # bgr = cv2.cvtColor(yuyv, cv2.COLOR_YUV2BGR_YUY2)
         # color_array = bgr.reshape((color_image.height, color_image.width, 3)) # BGR
         rgb = cv2.cvtColor(yuyv, cv2.COLOR_YUV2RGB_YUY2)
-        color_array = rgb.reshape((color_image.height, color_image.width, 3)) # RGB        
+        color_array = rgb.reshape((color_image.height, color_image.width, 3)) # RGB
+        # color_array = cv2.cvtColor(src=color_array, code=cv2.COLOR_BGR2RGB) # WARNING
         depth_array = np.frombuffer(depth_image.data, dtype=np.uint16).reshape((depth_image.height, depth_image.width)) # mm
         return color_array, depth_array
 
@@ -799,7 +855,6 @@ class Gesture_Commander_Coordinator(Node):
         self.__detection_id = 0
         self.config = config
         self.info(f"\033[1;102mRunning on {self.config.device}\033[0;0m")
-        self.info("Images are cropped and padded.")
         if self.config.debugging: # For localization tests only
             self.__trajectory = {
                 "detection position (xy)": [],
@@ -841,9 +896,9 @@ class Gesture_Commander_Coordinator(Node):
 
             # REMOVE-FOR-LOCALIZATION-TESTS (comment with #)
             if self.__last is None: # first frame
-                self.__last = time.time()
+                self.__last = time.monotonic()
             else:
-                current = time.time()
+                current = time.monotonic()
                 approx_rate = 1 / max(current - self.__last, 1e-6) # 1/sec
                 # Filter: classification rate
                 if approx_rate >= self.config.max_classification_rate:
@@ -855,7 +910,6 @@ class Gesture_Commander_Coordinator(Node):
             self.__log_counter += 1
 
             color_array, depth_array = self.__perceptron.get_arrays(color_image=color_image, depth_image=depth_image)
-            color_array = cv2.cvtColor(src=color_array, code=cv2.COLOR_BGR2RGB) # TODO!!
 
             # Human(s) pose estimation
             all_keypoints, all_bboxes = self.__pose_estimator.detect_keypoints(color=color_array, depth=depth_array)
@@ -881,9 +935,8 @@ class Gesture_Commander_Coordinator(Node):
             #     self.warn(f"Distance from camera ({min_depth}) exceeds threshold (>= {self.config.depth_max_threshold} or =< {self.config.depth_min_threshold} (mm)")
             #     return
 
-            preprocessed_img = self.__pose_estimator.crop_and_pad(img=color_array, bbox=all_bboxes[argmin_idx], resolution=self.__classifier.get_input_resolution())
-            prediction = self.__classifier.classify(preprocessed_img)
-            if self.config.debugging:
+            prediction, preprocessed_img = self.__classifier.classify(image=color_array, bbox=all_bboxes[argmin_idx])
+            if self.config.debugging and preprocessed_img is not None:
                 # mod 1000 to avoid filling the disk
                 with_text = cv2.putText(preprocessed_img, f"{prediction['class']} {prediction['confidence']:.2f} {min_depth:.0f}", (2,10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255))
                 cv2.imwrite(f"classified_frame_{self.__log_counter%1000}.jpg", with_text)
@@ -918,7 +971,7 @@ class Gesture_Commander_Coordinator(Node):
 
             self.info(f"Detection position: {gps} (GPS) [or {self.__transformations.gps_to_abs_xy(lat=gps[1],lon=gps[0])} (xy in mm)]")
             if self.config.debugging:
-                if len(self.__trajectory) < 1000: # To avoid memory overflow
+                if len(self.__trajectory["detection position (xy)"]) < 1000: # To avoid memory overflow
                     self.__trajectory["detection position (xy)"].append((abs_xyz[0], abs_xyz[1]))
                     self.__trajectory["robot position (xy)"].append((self.__transformations.gps_to_abs_xy(global_position.latitude, global_position.longitude)))
                     self.__trajectory["robot orientation (deg)"].append(heading.data)
@@ -961,8 +1014,11 @@ class Gesture_Commander_Coordinator(Node):
 
 def main():
     try:
-        TEST = "" # "_test"
+        TEST = "_test" # "_test"
         config = Configuration(
+            weights_pose_estimator = "yolo26s-pose.pt",
+            weights_classifier = "/home/konstantinosf/Projects/gesture_module_v2/gesture_module_v2/gesture_recognition/gesture_recognition/DET-PAD-UNK-ULT-SMALL-04.pt",
+            # weights_classifier = "/home/triffid/hua_ws/gesture_module_v2/gesture_recognition/gesture_recognition/DET-PAD-UNK-ULT-SMALL-04.pt",
             debugging = True,
             nav_fix_topic = "/fix"+TEST,
             heading_topic = "/b2/nicla/magnetometer/heading"+TEST,
@@ -979,6 +1035,7 @@ def main():
             pose_estimation_threshold = 0.80,
             device = "cuda" if torch.cuda.is_available() else "cpu",
             classification_threshold = 0.99,
+            classification_resolution = 224,
             min_occurrences = 2,
             no_servers = False, # previous NO_UNDERLYING_IMPL, change this to False during integration with UPC (!)
             server_timeout = 1.0,
@@ -999,11 +1056,10 @@ def main():
         )
         rclpy.init()
         rclpy.spin(node=Gesture_Commander_Coordinator(
-            # classifier = YOLO_Classification_Wrapper(config=config,resolution=224,path="/home/triffid/hua_ws/gesture_module_v2/gesture_recognition/gesture_recognition/DET-PAD-UNK-ULT-SMALL-04.pt"),
-            classifier = YOLO_Classification_Wrapper(config=config,resolution=224,path="/home/konstantinosf/Projects/gesture_module_v2/gesture_module_v2/gesture_recognition/gesture_recognition/DET-PAD-UNK-ULT-SMALL-04.pt"),
-            pose_estimator = YOLO_Pose_Wrapper(model="yolo26s-pose.pt", config=config), # DO NOT change the "model" parameter
-            # perceptron = DEMO_Perceptron(),
-            perceptron = RealSense_Perceptron(),
+            classifier = Cropped_YOLO_Classification_Wrapper(config=config),
+            pose_estimator = YOLO_Pose_Wrapper(config=config), # DO NOT change the "model" parameter
+            perceptron = DEMO_Perceptron(),
+            # perceptron = RealSense_Perceptron(),
             config = config,
             transformations = Approximate_Transformations(config=config)
         ))

@@ -4,3 +4,4 @@
 /gesture_venv
 /.vscode
 /dokimi.txt
+/gesture_recognition/gesture_recognition/yolo26s-pose.pt

@@ -264,7 +264,7 @@ class Approximate_Transformations(Transformations):
             y:          in mm (w.r.t. to robot frame)
             heading:    needs the (global) orientation in radians: 0=magnetic north, clockwise, range: [0, 2*pi)
         Returns:
-            The distance between the robot and the detection (meters) and the absolute angle (radians)
+            The distance between the robot and the detection (meters) and the absolute angle (radians, clockwise, wrt to magnetic north?)
         '''
         x_m = x / 1000
         y_m = y / 1000
@@ -273,16 +273,16 @@ class Approximate_Transformations(Transformations):
         angle_relative = math.atan2(x_m, y_m) # range: [-pi, pi], counterclockwise, zero = magnetic east
         # Must be in the range [-pi, pi] and clockwise: 
         # 1) the camera_heading lies on [0, 2*pi) and 
-        camera_heading = camera_heading if camera_heading<=math.pi else (camera_heading - 2*math.pi)
+        camera_heading = camera_heading if camera_heading<=math.pi else (camera_heading - 2*math.pi) # wrt to magnetic north
         # 2) the angle_relative is counterclockwise (!) (0 = robot direction)
         angle_relative = - angle_relative
-        angle_absolute = camera_heading + angle_relative
+        angle_absolute = camera_heading + angle_relative # clockwise
         distance = math.hypot(x_m, y_m)
         return distance, angle_absolute
     def __dist_ang_to_gps(self, distance, angle_absolute, robot_lat, robot_lon): # apostolakis
         '''
         Parameters:
-            distance:       in meters (between robot and )
+            distance:       in meters (between robot and detection)
             angle_absolute: in radians (absolute polar coordinates):  0=magnetic north, clockwise, range: [0, 2*pi)
         Returns:
             lat/lon (GPS)    
@@ -292,9 +292,14 @@ class Approximate_Transformations(Transformations):
         return result["lat2"], result["lon2"]
     def base_xyz_to_abs_xyz(self, xyz:tuple[float], stamp, camera_heading:float, robot_gps:NavSatFix) -> tuple[float]:
         '''input/output in mm, z=0, camera_heading in radians (0-2*pi range)'''
-        distance, angle_absolute = self.__xy_to_dist_ang(x=xyz[0], y=xyz[1], camera_heading=camera_heading)
-        lat, lon = self.__dist_ang_to_gps(distance=distance, angle_absolute=angle_absolute, robot_lat=robot_gps.latitude, robot_lon=robot_gps.longitude)
-        return *self.gps_to_abs_xy(lat=lat, lon=lon), 0 # in mm
+        distance, angle_absolute = self.__xy_to_dist_ang(x=xyz[0], y=xyz[1], camera_heading=camera_heading) # meters, radians
+        distance = distance * 1000
+        # lat, lon = self.__dist_ang_to_gps(distance=distance, angle_absolute=angle_absolute, robot_lat=robot_gps.latitude, robot_lon=robot_gps.longitude)
+        # return *self.gps_to_abs_xy(lat=lat, lon=lon), 0 # in mm
+        origin = self.gps_to_abs_xy(lat=robot_gps.latitude,lon=robot_gps.longitude)
+        x = distance * math.cos(-angle_absolute+math.pi/2) + origin[0]
+        y = distance * math.sin(-angle_absolute+math.pi/2) + origin[1]
+        return x, y, 0 # in mm
     def abs_xy_to_gps(self, x, y) -> tuple[float]:
         '''
         abs_xy -> GPS

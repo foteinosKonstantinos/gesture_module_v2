@@ -14,7 +14,7 @@ import abc
 EARTH_RADIUS = 6378137.0 # in meters
 # PATH = "/home/triffid/hua_ws/gesture_module_v2"
 PATH = "/home/konstantinosf/Projects/gesture_module_v2/gesture_module_v2"
-FPS = 1.0
+FPS = 0.1
 
 def euler_to_quaternion(roll, pitch, yaw):
     qx = np.sin(roll/2) * np.cos(pitch/2) * np.cos(yaw/2) - np.cos(roll/2) * np.sin(pitch/2) * np.sin(yaw/2)
@@ -261,9 +261,24 @@ class Localization_Parabola_Test(Test):
     def get_xy(self, timestep):
         return (timestep * 1000.0, timestep**2 * 1000.0) # mm
     def get_orientation(self, timestep):
-        return 0.0
+        return 0.0 # Angle relative to north
     def finished(self, timestep):
         return False
+
+class Localization_Circle_Test(Test):
+    def __init__(self):
+        self.__rgb_frame = 'frames/high_Freeze_340_color.png'
+        self.__depth_frame = 'frames/high_Freeze_340_depth.png'
+    def get_rgb_frame(self, timestep):
+        return self.__rgb_frame
+    def get_depth_frame(self, timestep):
+        return self.__depth_frame
+    def get_xy(self, timestep):
+        return (0,0) #(timestep * 1000.0, timestep**2 * 1000.0) # mm
+    def get_orientation(self, timestep):
+        return 360 * (timestep / 10) # Angle relative to north (degrees)
+    def finished(self, timestep):
+        return timestep >= 10
 
 class Localization_Line_Test(Test):
     def __init__(self):
@@ -276,7 +291,7 @@ class Localization_Line_Test(Test):
     def get_xy(self, timestep):
         return (timestep * 1000.0, timestep * 1000.0) # mm
     def get_orientation(self, timestep):
-        return 0.0 #360.0-45.0 # degress, perpedincular to the line
+        return float(input("Degrees (wrt to magnetic north, clockwise): ")) #360.0-45.0 # degress, perpedincular to the line
     def finished(self, timestep):
         return False
 
@@ -461,9 +476,9 @@ class Producer(Node):
 
 def main():
     try:
+        test = Localization_Line_Test()
         # test = Localization_Line_Test()
         # print(test.generate_full_trajectory(max_timestep=100))
-        test = Interactive_Test()
         rclpy.init()
         rclpy.spin(node=Producer(test_scenario=test,fps=FPS))
     except (ExternalShutdownException, KeyboardInterrupt) as e:

@@ -1,7 +1,9 @@
-source /opt/ros/humble/setup.bash
-
+ROS_DISTRO="humble"
 VENV_NAME="gesture_commander_venv"
-source ./$VENV_NAME/bin/activate
+
+source /opt/ros/$ROS_DISTRO/setup.bash
+
+source ../$VENV_NAME/bin/activate
 
 echo "Removing build trash ..."
 rm -rf build install log

@@ -22,36 +22,36 @@ If you find this repository useful, please consider citing our releted paper:
 
 ### General information
 
-This module takes as input aligned RGBD frames and the (global) pose of the camera at that timestamp (approximately) and performs gesture classication and pose estimation simultaneously; if a gesture is detected with high confidence and sufficiently close to the camera, it publishes, for a particular human identified as the signer (e.g., the closest one), the pixel coordinates (uv) of her/his keypoints (e.g., ankles, shoulders), their depth and estimation confidence. Further, it estimates the uv position and depth of his/her by getting the average of the uv and depth correspond to the two shoulders. This information is utilized to predict the (global) longitude and latitude coordinates. Robot actions are triggered, as follows:
+This module takes as input aligned RGBD frames and the (global) pose of the camera at that timestamp (approximately) and performs human pose estimation and gesture classification. Various filters are applied (e.g., confidence threhsolds) to reduce the number of False Positives (FPs). If a gesture command is detected and passes the aforementioned filters, a robot action is triggered, as follows:
 
 | Command | Action | Action server |
 | --- | --- | --- |
-| Freeze | Freeze trigger (True) | /b2/local/trigger_freeze |
+| Come to me | NavigateTo | /b2/local/trigger_navigation |
 | Unfreeze (previous ok to go) | Freeze trigger (False) | /b2/local/trigger_freeze |
+| Move away from here | Retreat trigger (True) | /b2/local/trigger_retreat |
+| Operation finished | ReturnToBase (True) | /b2/local/trigger_return_to_base |
+| Freeze | Freeze trigger (True) | /b2/local/trigger_freeze |
 | Stop | Stop trigger (True) | /b2/local/trigger_stop |
 | Emergency situation | Emergency trigger (True) | /b2/local/trigger_emergency |
-| Move away from here | Retreat trigger (True) | /b2/local/trigger_retreat |
+| I need help | HelpRequest (position, "aids") | /b2/local/trigger_help_request |
 | Evacuate the area (TODO ⚠️) | ReturnToBase (True) | /b2/local/trigger_return_to_base |
-| Operation finished | ReturnToBase (True) | /b2/local/trigger_return_to_base |
+| I lost connection | HelpRequest (position, "technical") | /b2/local/trigger_help_request |
 | Fetch a gas mask | ReturnToBaseFetch ("gas_mask") | /b2/local/trigger_return_to_base_fetch |
 | Fetch a shovel | ReturnToBaseFetch ("shovel") | /b2/local/trigger_return_to_base_fetch |
 | Fetch an axe | ReturnToBaseFetch ("axe") | /b2/local/trigger_return_to_base_fetch |
-| Come to me | NavigateTo | /b2/local/trigger_navigation |
-| I need help | HelpRequest (position, "aids") | /b2/local/trigger_help_request |
-| I lost connection | HelpRequest (position, "technical") | /b2/local/trigger_help_request |
 
 To enable the UPC action servers, run `ros2 launch ugv_bringup ugv_bringup.launch.py` on the UGV NUC.
 
 Considered coordinate systems:
 - uvd: uv (image plane) & depth
 - rel_xyz: (optical) camera frame xyz (backprojection) (camera_depth_frame)
-- base_xyz: base link
+- base_xyz: base link (robot, appriximately with the same origing with the camera frame)
 - gps: GPS or global or absolute (longitude, latitude)
 - abs_xy: Absolute xy (i.e., the "tangent" plane, oriented by the meridians and parallels)
 
-Various filters are applied to reduce false positives. The chain of filters is illustrated in the following figure (dashed boxes correspond to filters that exist but not applied - human localization is performed approximately if the `tf_tree` is not available):
+Various filters are applied to reduce false positives. The chain of filters is illustrated in the following figure (human localization is performed approximately if the `tf_tree` is not available):
 
-![Block diagram](./assets/filtersv2.jpg)
+![Block diagram](./assets/pipeline_overview.jpg)
 
 > Use the `JETSON-Dockerfile` for deployment on Jetson
 
@@ -66,7 +66,9 @@ Various filters are applied to reduce false positives. The chain of filters is i
 | /b2/camera_front_435i/realsense_front_435i/color/camera_info | CameraInfo | Input | - |
 | /fix | NavSatFix | Input | - |
 | /b2/nicla/magnetometer/heading | Float32 | Input | Global UGV orientation in degrees (**0 = magnetic north, clockwise**) |
+| /b2/nav_status | String | Input | Robot state (e.g., FREEZE or EMERGENCY) |
 | /gesture_command | String | Output | Stringified GeoJSON, see below |
+| /b2/gesture_commander_heartbeat | String | Output | "Announces" the presence of the gesture commander |
 <!-- /dog_odom | Odometry | Input | Orientation should be expresses wr.t. to a global coordinate system (the "standard" xy plane aligned to parallels and meridians) | -->
 
 The exact output message format has as follows:
